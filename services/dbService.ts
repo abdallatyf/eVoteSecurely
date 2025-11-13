@@ -1,11 +1,12 @@
-import { AdminUser, VotingEntry, IDCardData, HistoricalStructure, Task } from '../types';
+import { AdminUser, VotingEntry, IDCardData, HistoricalStructure, Task, Candidate } from '../types';
 
 const DB_NAME = 'VotingAppDB';
-const DB_VERSION = 3; // Incremented version to add new store
+const DB_VERSION = 4; // Incremented version to add candidates store
 const VOTING_ENTRIES_STORE = 'voting_entries';
 const ADMIN_USERS_STORE = 'admin_users';
 const GOVERNMENT_STRUCTURES_STORE = 'government_structures';
-const TASKS_STORE = 'tasks'; // New store name
+const TASKS_STORE = 'tasks';
+const CANDIDATES_STORE = 'candidates'; // New store for candidates
 
 class VotingDB {
   private db: IDBDatabase | null = null;
@@ -42,6 +43,11 @@ class VotingDB {
             const tasksStore = db.createObjectStore(TASKS_STORE, { keyPath: 'id' });
             tasksStore.createIndex('assignedToId', 'assignedToId', { unique: false });
             tasksStore.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+        // Create object store for candidates
+        if (!db.objectStoreNames.contains(CANDIDATES_STORE)) {
+            const candidatesStore = db.createObjectStore(CANDIDATES_STORE, { keyPath: 'id' });
+            candidatesStore.createIndex('position', 'position', { unique: false });
         }
       };
 
@@ -227,6 +233,43 @@ class VotingDB {
   async getAllTasks(): Promise<Task[]> {
     return new Promise((resolve, reject) => {
       const store = this.getObjectStore(TASKS_STORE, 'readonly');
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = (event) => reject((event.target as IDBRequest).error);
+    });
+  }
+  
+  // --- Candidate Operations ---
+  async addCandidate(candidate: Candidate): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const store = this.getObjectStore(CANDIDATES_STORE, 'readwrite');
+      store.transaction.oncomplete = () => resolve();
+      store.transaction.onerror = () => reject(store.transaction.error);
+      store.add(candidate);
+    });
+  }
+
+  async updateCandidate(candidate: Candidate): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const store = this.getObjectStore(CANDIDATES_STORE, 'readwrite');
+      store.transaction.oncomplete = () => resolve();
+      store.transaction.onerror = () => reject(store.transaction.error);
+      store.put(candidate);
+    });
+  }
+  
+  async deleteCandidate(id: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const store = this.getObjectStore(CANDIDATES_STORE, 'readwrite');
+      store.transaction.oncomplete = () => resolve();
+      store.transaction.onerror = () => reject(store.transaction.error);
+      store.delete(id);
+    });
+  }
+
+  async getAllCandidates(): Promise<Candidate[]> {
+    return new Promise((resolve, reject) => {
+      const store = this.getObjectStore(CANDIDATES_STORE, 'readonly');
       const request = store.getAll();
       request.onsuccess = () => resolve(request.result);
       request.onerror = (event) => reject((event.target as IDBRequest).error);

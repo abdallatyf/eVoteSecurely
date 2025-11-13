@@ -73,6 +73,16 @@ export interface VotingEntry {
   assignedPosition?: string; // The constitutional position for the candidate
   isOfficial?: boolean; // New field to mark as an official, saved record
   hasVoted?: boolean; // Add this field to track vote status
+  votedForCandidateId?: string; // ID of the candidate the user voted for
+  votedForCandidateName?: string; // Denormalized name for easier display/auditing
+}
+
+export interface Candidate {
+  id: string;
+  fullName: string;
+  position: string;
+  party?: string;
+  profilePictureBase64?: string;
 }
 
 export type GovernmentStructureData = Record<string, Record<string, string[]>>;
