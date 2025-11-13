@@ -504,19 +504,32 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const SortableHeader: React.FC<{ column: SortByType; title: string; className?: string }> = ({ column, title, className = '' }) => {
     const isCurrentSortColumn = sortBy === column;
+    const arrowIcon = (
+        <span className="opacity-80">
+            {sortOrder === 'asc' 
+                ? <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" /></svg> 
+                : <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7 7" /></svg>}
+        </span>
+    );
+    
+    // Icon for non-active sortable headers, appears on hover
+    const genericSortIcon = (
+         <span className="opacity-0 group-hover:opacity-40 transition-opacity duration-200">
+             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 3a.75.75 0 01.55.24l3.25 3.5a.75.75 0 11-1.1 1.02L10 4.852 7.3 7.76a.75.75 0 01-1.1-1.02l3.25-3.5A.75.75 0 0110 3zm-3.76 9.24a.75.75 0 011.02-1.1l2.44 2.648 2.44-2.648a.75.75 0 111.02 1.1l-3.25 3.5a.75.75 0 01-1.1 0l-3.25-3.5z" clipRule="evenodd" />
+            </svg>
+        </span>
+    );
+
     return (
         <th 
-            className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-theme-table-header cursor-pointer select-none hover:bg-theme-secondary/10 transition-colors ${className}`}
+            className={`group px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-theme-table-header cursor-pointer select-none hover:bg-theme-secondary/10 transition-colors ${className}`}
             onClick={() => handleSort(column)}
             aria-sort={isCurrentSortColumn ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}
         >
             <div className="flex items-center gap-1">
                 {title}
-                {isCurrentSortColumn && (
-                    <span className="opacity-80">
-                        {sortOrder === 'asc' ? '▲' : '▼'}
-                    </span>
-                )}
+                {isCurrentSortColumn ? arrowIcon : genericSortIcon}
             </div>
         </th>
     );
