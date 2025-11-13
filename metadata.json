@@ -1,0 +1,7 @@
+{
+  "name": "Secure Biometric Voting App (v)",
+  "description": "A frontend React application simulating a secure biometric and facial verification process from national ID cards for a singular voting event. This application demonstrates UI/UX for ID scanning, data extraction (using Gemini API), admin validation, and theme customization. NOTE: This is a client-side simulation; real-world biometric, large-scale data storage (120 million records), and secure voting systems require extensive backend infrastructure, robust security, and compliance with privacy regulations.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Biometric Voting App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* Basic reset for better consistency */
+      body {
+        margin: 0;
+        font-family: sans-serif;
+      }
+      /* Define CSS variables for themes */
+      html[data-theme="light"] {
+        --color-primary: #3b82f6; /* blue-500 */
+        --color-secondary: #60a5fa; /* blue-400 */
+        --color-background: #f8fafc; /* slate-50 */
+        --color-card-background: #ffffff;
+        --color-text: #1e293b; /* slate-800 */
+        --color-border: #e2e8f0; /* slate-200 */
+        --color-table-header-background: #eff6ff; /* blue-50 */
+        --color-table-header-text: #1e3a8a; /* blue-900 */
+      }
+      html[data-theme="dark"] {
+        --color-primary: #60a5fa; /* blue-400 */
+        --color-secondary: #3b82f6; /* blue-500 */
+        --color-background: #1e293b; /* slate-800 */
+        --color-card-background: #334155; /* slate-700 */
+        --color-text: #f8fafc; /* slate-50 */
+        --color-border: #475569; /* slate-600 */
+        --color-table-header-background: #1e293b; /* slate-800 */
+        --color-table-header-text: #bfdbfe; /* blue-200 */
+      }
+      html[data-theme="emerald"] {
+        --color-primary: #10b981; /* emerald-500 */
+        --color-secondary: #34d399; /* emerald-400 */
+        --color-background: #ecfdf5; /* emerald-50 */
+        --color-card-background: #ffffff;
+        --color-text: #064e3b; /* emerald-900 */
+        --color-border: #a7f3d0; /* emerald-200 */
+        --color-table-header-background: #d1fae5; /* emerald-100 */
+        --color-table-header-text: #065f46; /* emerald-800 */
+      }
+      html[data-theme="purple"] {
+        --color-primary: #a855f7; /* purple-500 */
+        --color-secondary: #c084fc; /* purple-400 */
+        --color-background: #f5f3ff; /* purple-50 */
+        --color-card-background: #ffffff;
+        --color-text: #581c87; /* purple-900 */
+        --color-border: #d8b4fe; /* purple-200 */
+        --color-table-header-background: #f3e8ff; /* purple-100 */
+        --color-table-header-text: #6b21a8; /* purple-800 */
+      }
+
+      /* Apply theme variables to Tailwind classes */
+      .bg-theme-background { background-color: var(--color-background); }
+      .bg-theme-card { background-color: var(--color-card-background); }
+      .text-theme-text { color: var(--color-text); }
+      .border-theme-border { border-color: var(--color-border); }
+      .bg-theme-primary { background-color: var(--color-primary); }
+      .hover\\:bg-theme-secondary:hover { background-color: var(--color-secondary); }
+      .focus\\:ring-theme-primary:focus { --tw-ring-color: var(--color-primary); }
+      .bg-theme-table-header { background-color: var(--color-table-header-background); }
+      .text-theme-table-header { color: var(--color-table-header-text); }
+
+      /* Tree view styles */
+      .tree-container ul {
+          padding-left: 20px;
+          margin: 6px 0;
+          list-style-type: none;
+          border-left: 1px solid var(--color-border);
+      }
+      .tree-container li {
+          position: relative;
+          padding: 4px 0 4px 20px;
+      }
+      .tree-container li::before {
+          content: '';
+          position: absolute;
+          top: 14px;
+          left: 0;
+          width: 15px;
+          height: 1px;
+          background-color: var(--color-border);
+      }
+      /* Remove the hanging vertical line from the last item in a list */
+      .tree-container li:last-child {
+          padding-bottom: 4px; /* Ensure padding is consistent */
+      }
+      .tree-container li:last-child::after {
+          content: '';
+          position: absolute;
+          top: 15px;
+          left: -20px; /* Aligns with the parent's vertical line */
+          bottom: 0;
+          width: 1px;
+          height: calc(100% - 15px);
+          background-color: var(--color-background); /* Hides the line */
+      }
+      .tree-node-content {
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 2px 8px;
+          border-radius: 6px;
+          transition: background-color 0.2s, color 0.2s;
+          user-select: none;
+      }
+      .tree-node-content:hover {
+          background-color: rgba(128, 128, 128, 0.1);
+      }
+      .tree-node-content.selected {
+          background-color: var(--color-primary);
+          color: white;
+      }
+      .tree-node-toggler {
+          transition: transform 0.2s;
+          width: 16px;
+          height: 16px;
+      }
+      .tree-node-toggler.expanded {
+          transform: rotate(90deg);
+      }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.5",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.29.0"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="root"></div>
+    <!-- Load external libraries as traditional scripts before the module script -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>
