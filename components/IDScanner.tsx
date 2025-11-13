@@ -43,6 +43,8 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [sharpnessSensitivity, setSharpnessSensitivity] = useState(100); // Corresponds to BLUR_THRESHOLD
   const [binarizationConstant, setBinarizationConstant] = useState(7);   // Corresponds to 'C' in adaptive thresholding
+  const [claheClipLimit, setClaheClipLimit] = useState(2.0);
+  const [claheGridSize, setClaheGridSize] = useState(8);
   const [preprocessedPreview, setPreprocessedPreview] = useState<string | null>(null);
   const [isPreprocessingPreview, setIsPreprocessingPreview] = useState(false);
   const debounceTimer = useRef<number | null>(null);
@@ -156,7 +158,7 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
     img.src = imageDataUrl;
   }, []);
   
-  const generatePreprocessedPreview = useCallback(async (imageDataUrl: string, C: number) => {
+  const generatePreprocessedPreview = useCallback(async (imageDataUrl: string, C: number, clip: number, grid: number) => {
     if (!canvasRef.current) return;
     setIsPreprocessingPreview(true);
     const canvas = canvasRef.current;
@@ -172,7 +174,11 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
         ctx.drawImage(img, 0, 0);
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         try {
-            const preprocessed = await preprocessImageForOCR(imageData, { binarizationConstantC: C });
+            const preprocessed = await preprocessImageForOCR(imageData, {
+                binarizationConstantC: C,
+                claheClipLimit: clip,
+                claheGridSize: grid,
+            });
             setPreprocessedPreview(preprocessed.ocrOptimizedPng);
         } catch (e) {
             console.error("Failed to generate preview:", e);
@@ -201,13 +207,13 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
     if (capturedImage) {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
       debounceTimer.current = window.setTimeout(() => {
-        generatePreprocessedPreview(`data:${capturedImage.mimeType};base64,${capturedImage.data}`, binarizationConstant);
+        generatePreprocessedPreview(`data:${capturedImage.mimeType};base64,${capturedImage.data}`, binarizationConstant, claheClipLimit, claheGridSize);
       }, 300);
     }
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     }
-  }, [binarizationConstant, capturedImage, generatePreprocessedPreview]);
+  }, [binarizationConstant, claheClipLimit, claheGridSize, capturedImage, generatePreprocessedPreview]);
 
 
   const handleCapture = useCallback(() => {
@@ -225,10 +231,10 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
         const base64Data = dataUrl.split(',')[1];
         setCapturedImage({ data: base64Data, mimeType });
         analyzeImage(dataUrl, sharpnessSensitivity);
-        generatePreprocessedPreview(dataUrl, binarizationConstant);
+        generatePreprocessedPreview(dataUrl, binarizationConstant, claheClipLimit, claheGridSize);
       }
     }
-  }, [analyzeImage, generatePreprocessedPreview, sharpnessSensitivity, binarizationConstant]);
+  }, [analyzeImage, generatePreprocessedPreview, sharpnessSensitivity, binarizationConstant, claheClipLimit, claheGridSize]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -240,7 +246,7 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
         const base64Data = dataUrl.split(',')[1];
         setCapturedImage({ data: base64Data, mimeType: file.type });
         analyzeImage(dataUrl, sharpnessSensitivity);
-        generatePreprocessedPreview(dataUrl, binarizationConstant);
+        generatePreprocessedPreview(dataUrl, binarizationConstant, claheClipLimit, claheGridSize);
       };
       reader.readAsDataURL(file);
     }
@@ -257,6 +263,8 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
     setShowAdvancedSettings(false);
     setSharpnessSensitivity(100);
     setBinarizationConstant(7);
+    setClaheClipLimit(2.0);
+    setClaheGridSize(8);
     setPreprocessedPreview(null);
   };
   
@@ -279,7 +287,11 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
 
         const preprocessedImages = await preprocessImageForOCR(
           ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height),
-          { binarizationConstantC: binarizationConstant }
+          { 
+              binarizationConstantC: binarizationConstant,
+              claheClipLimit: claheClipLimit,
+              claheGridSize: claheGridSize,
+          }
         );
         const preprocessedBase64 = preprocessedImages.ocrOptimizedPng.split(',')[1];
         const preprocessedThumbnailBase64 = preprocessedImages.thumbnailJpeg.split(',')[1];
@@ -371,7 +383,7 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
                 await submitForExtraction(newImage);
             } else {
                 analyzeImage(currentImage, sharpnessSensitivity);
-                generatePreprocessedPreview(currentImage, binarizationConstant);
+                generatePreprocessedPreview(currentImage, binarizationConstant, claheClipLimit, claheGridSize);
             }
         } catch(e) {
             console.error(e);
@@ -579,6 +591,16 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
                                     <label htmlFor="binarization-slider" className="block text-sm font-medium text-theme-text mb-1">Binarization Contrast: <span className="font-bold">{binarizationConstant}</span></label>
                                     <input id="binarization-slider" type="range" min="1" max="15" value={binarizationConstant} onChange={(e) => setBinarizationConstant(parseInt(e.target.value, 10))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" />
                                      <p className="text-xs text-gray-500 mt-1">Adjusts the threshold for converting the image to black & white for OCR. Higher values make text thinner.</p>
+                                </div>
+                                <div>
+                                    <label htmlFor="clahe-clip-slider" className="block text-sm font-medium text-theme-text mb-1">CLAHE Clip Limit: <span className="font-bold">{claheClipLimit.toFixed(1)}</span></label>
+                                    <input id="clahe-clip-slider" type="range" min="1.0" max="10.0" step="0.5" value={claheClipLimit} onChange={(e) => setClaheClipLimit(parseFloat(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" />
+                                    <p className="text-xs text-gray-500 mt-1">Controls local contrast enhancement. Higher values increase contrast but can add noise.</p>
+                                </div>
+                                <div>
+                                    <label htmlFor="clahe-grid-slider" className="block text-sm font-medium text-theme-text mb-1">CLAHE Grid Size: <span className="font-bold">{claheGridSize}x{claheGridSize}</span></label>
+                                    <input id="clahe-grid-slider" type="range" min="2" max="16" step="2" value={claheGridSize} onChange={(e) => setClaheGridSize(parseInt(e.target.value, 10))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" />
+                                    <p className="text-xs text-gray-500 mt-1">The number of tiles the image is divided into for local enhancement. Larger grid can adapt better to local light changes.</p>
                                 </div>
                                 <div>
                                     <p className="text-sm font-medium text-center text-theme-text mb-2">OCR Preprocessed Preview</p>

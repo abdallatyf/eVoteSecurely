@@ -7,6 +7,135 @@ export interface ProcessedImageOutput {
 
 const THUMBNAIL_WIDTH = 200;
 
+// --- CLAHE Implementation ---
+
+/**
+ * Calculates the histogram for a specific tile of a grayscale image.
+ */
+function calculateTileHistogram(grayscale: Uint8ClampedArray, width: number, x_start: number, y_start: number, tileWidth: number, tileHeight: number): number[] {
+    const histogram = new Array(256).fill(0);
+    const x_end = x_start + tileWidth;
+    const y_end = y_start + tileHeight;
+
+    for (let y = y_start; y < y_end; y++) {
+        for (let x = x_start; x < x_end; x++) {
+            histogram[grayscale[y * width + x]]++;
+        }
+    }
+    return histogram;
+}
+
+/**
+ * Clips a histogram at a specified limit and redistributes the excess pixels.
+ */
+function clipAndRedistributeHistogram(histogram: number[], clipLimit: number, numPixelsInTile: number): number[] {
+    const actualClipLimit = clipLimit * (numPixelsInTile / 256); // Use average bin height as base
+    let excess = 0;
+
+    // Clip and calculate excess
+    for (let i = 0; i < 256; i++) {
+        if (histogram[i] > actualClipLimit) {
+            excess += histogram[i] - actualClipLimit;
+            histogram[i] = actualClipLimit;
+        }
+    }
+
+    // Redistribute excess
+    const redistributionAmount = excess / 256;
+    for (let i = 0; i < 256; i++) {
+        histogram[i] += redistributionAmount;
+    }
+    
+    return histogram;
+}
+
+/**
+ * Calculates the Cumulative Distribution Function (CDF) from a histogram.
+ */
+function calculateCDF(histogram: number[], numPixelsInTile: number): number[] {
+    const cdf = new Array(256).fill(0);
+    let cumulative = 0;
+    for (let i = 0; i < 256; i++) {
+        cumulative += histogram[i];
+        cdf[i] = cumulative / numPixelsInTile;
+    }
+    return cdf;
+}
+
+/**
+ * Applies Contrast Limited Adaptive Histogram Equalization (CLAHE) to a grayscale image.
+ */
+function applyCLAHE(grayscale: Uint8ClampedArray, width: number, height: number, options: { clipLimit?: number; gridSize?: number } = {}): Uint8ClampedArray {
+    const { clipLimit = 2.0, gridSize = 8 } = options;
+
+    const tileWidth = Math.floor(width / gridSize);
+    const tileHeight = Math.floor(height / gridSize);
+
+    if (tileWidth === 0 || tileHeight === 0) {
+        console.warn("CLAHE grid size is too large for the image dimensions. Skipping.");
+        return grayscale;
+    }
+    const numPixelsInTile = tileWidth * tileHeight;
+    
+    // 1. Create CDF maps for each tile
+    const cdfMaps: number[][][] = [];
+    for (let gridY = 0; gridY < gridSize; gridY++) {
+        cdfMaps[gridY] = [];
+        for (let gridX = 0; gridX < gridSize; gridX++) {
+            const x_start = gridX * tileWidth;
+            const y_start = gridY * tileHeight;
+            
+            let histogram = calculateTileHistogram(grayscale, width, x_start, y_start, tileWidth, tileHeight);
+            histogram = clipAndRedistributeHistogram(histogram, clipLimit, numPixelsInTile);
+            cdfMaps[gridY][gridX] = calculateCDF(histogram, numPixelsInTile);
+        }
+    }
+
+    const result = new Uint8ClampedArray(grayscale.length);
+
+    // 2. Interpolate for each pixel
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const originalValue = grayscale[y * width + x];
+
+            // Determine which tile the pixel is in
+            const gridX = Math.floor(x / tileWidth);
+            const gridY = Math.floor(y / tileHeight);
+            
+            const tileGridX = Math.min(gridSize - 1, gridX);
+            const tileGridY = Math.min(gridSize - 1, gridY);
+
+            // Determine sub-pixel position within the tile for interpolation
+            const localX = (x % tileWidth) / tileWidth;
+            const localY = (y % tileHeight) / tileHeight;
+
+            // Get the 4 surrounding tile CDFs
+            const cdf_TL = cdfMaps[tileGridY][tileGridX];
+            const cdf_TR = (tileGridX < gridSize - 1) ? cdfMaps[tileGridY][tileGridX + 1] : cdf_TL;
+            const cdf_BL = (tileGridY < gridSize - 1) ? cdfMaps[tileGridY + 1][tileGridX] : cdf_TL;
+            const cdf_BR = (tileGridY < gridSize - 1 && tileGridX < gridSize - 1) ? cdfMaps[tileGridY + 1][tileGridX + 1] : cdf_TL;
+
+            // Get mapped values from each CDF
+            const val_TL = cdf_TL[originalValue] * 255;
+            const val_TR = cdf_TR[originalValue] * 255;
+            const val_BL = cdf_BL[originalValue] * 255;
+            const val_BR = cdf_BR[originalValue] * 255;
+
+            // Bilinear interpolation
+            const top_interp = val_TL * (1 - localX) + val_TR * localX;
+            const bottom_interp = val_BL * (1 - localX) + val_BR * localX;
+            const final_val = top_interp * (1 - localY) + bottom_interp * localY;
+            
+            result[y * width + x] = Math.max(0, Math.min(255, final_val));
+        }
+    }
+
+    return result;
+}
+
+
+// --- Other Preprocessing Functions ---
+
 /**
  * Applies a median filter to reduce salt-and-pepper noise from grayscale image data.
  * @param grayscale The source grayscale data.
@@ -151,7 +280,7 @@ function applyAdaptiveThresholding(grayscale: Uint8ClampedArray, width: number, 
  */
 export const preprocessImageForOCR = async (
   imageData: ImageData,
-  options: { binarizationConstantC?: number } = {}
+  options: { binarizationConstantC?: number; claheClipLimit?: number; claheGridSize?: number } = {}
 ): Promise<ProcessedImageOutput> => {
   return new Promise((resolve, reject) => {
     // Process asynchronously to avoid blocking the UI thread.
@@ -167,18 +296,24 @@ export const preprocessImageForOCR = async (
           grayscaleData[i / 4] = luminance;
         }
 
-        // 2. Apply Median Filter for Noise Reduction
+        // 2. Apply CLAHE for local contrast enhancement
+        const claheData = applyCLAHE(grayscaleData, width, height, {
+            clipLimit: options.claheClipLimit,
+            gridSize: options.claheGridSize,
+        });
+
+        // 3. Apply Median Filter for Noise Reduction
         // This is effective against salt-and-pepper noise common in captured images.
-        const noiseReducedData = applyMedianFilter(grayscaleData, width, height, 3);
+        const noiseReducedData = applyMedianFilter(claheData, width, height, 3);
         
-        // 3. Apply Sharpening to enhance text edges
+        // 4. Apply Sharpening to enhance text edges
         const sharpenedData = applySharpening(noiseReducedData, width, height);
         
-        // 4. Apply Optimized Adaptive Thresholding for Binarization
+        // 5. Apply Optimized Adaptive Thresholding for Binarization
         // This handles uneven lighting well and is fast due to using an integral image.
         const binaryData = applyAdaptiveThresholding(sharpenedData, width, height, 21, options.binarizationConstantC ?? 7);
 
-        // 5. Create final RGBA image data from the binary data for canvas drawing
+        // 6. Create final RGBA image data from the binary data for canvas drawing
         const outputRgbaData = new Uint8ClampedArray(data.length);
         for (let i = 0; i < binaryData.length; i++) {
           const value = binaryData[i];
@@ -189,7 +324,7 @@ export const preprocessImageForOCR = async (
           outputRgbaData[outputPixelIndex + 3] = 255;   // A
         }
 
-        // 6. Draw to a canvas to get HD PNG and create other formats
+        // 7. Draw to a canvas to get HD PNG and create other formats
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
