@@ -20,7 +20,7 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
   const [capturedImage, setCapturedImage] = useState<{ data: string; mimeType: string } | null>(null);
   const [imageQualityReport, setImageQualityReport] = useState<ImageQualityReport | null>(null);
   const [isAnalysisRunning, setIsAnalysisRunning] = useState(false);
-  const [analysisProgress, setAnalysisProgress] = useState(0); // New state for progress
+  const [analysisProgress, setAnalysisProgress] = useState(0);
   const [qrCodeData, setQrCodeData] = useState<string | null>(null);
 
   // Manual Edit State
@@ -29,12 +29,20 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
   const [rotation, setRotation] = useState(0);
   const [brightness, setBrightness] = useState(100);
   const [contrast, setContrast] = useState(100);
-  const [isExtractingAfterEdit, setIsExtractingAfterEdit] = useState(false); // New state for combined workflow
+  const [isExtractingAfterEdit, setIsExtractingAfterEdit] = useState(false);
+
+  // Profile Picture State
+  const [isProfilePicModalOpen, setIsProfilePicModalOpen] = useState(false);
+  const [profilePicStep, setProfilePicStep] = useState<'capture' | 'preview'>('capture');
+  const [capturedProfilePic, setCapturedProfilePic] = useState<string | null>(null);
+  const [confirmedProfilePic, setConfirmedProfilePic] = useState<string | null>(null);
 
   // Preprocessing controls state
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
-  const [sharpnessSensitivity, setSharpnessSensitivity] = useState(100); // Corresponds to BLUR_THRESHOLD
-  const [binarizationConstant, setBinarizationConstant] = useState(7);   // Corresponds to 'C' in adaptive thresholding
+  const [sharpnessSensitivity, setSharpnessSensitivity] = useState(100);
+  const [binarizationConstant, setBinarizationConstant] = useState(7);
+  const [claheClipLimit, setClaheClipLimit] = useState(2.0);
+  const [claheGridSize, setClaheGridSize] = useState(8);
   const [preprocessedPreview, setPreprocessedPreview] = useState<string | null>(null);
   const [isPreprocessingPreview, setIsPreprocessingPreview] = useState(false);
   const debounceTimer = useRef<number | null>(null);
@@ -43,12 +51,13 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const startCamera = async () => {
+  const startCamera = async (facingMode: 'environment' | 'user' = 'environment') => {
+    stopCamera(); // Stop any existing stream
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: 'environment',
+            facingMode,
             width: { ideal: 1920 },
             height: { ideal: 1080 },
           },
@@ -56,12 +65,14 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           setIsCameraOn(true);
-          setCapturedImage(null);
+          if (facingMode === 'environment') {
+            setCapturedImage(null);
+          }
           setError(null);
         }
       } catch (err) {
         console.error('Error accessing camera:', err);
-        setError('Could not access the camera. Please check permissions and try again.');
+        setError(`Could not access the ${facingMode} camera. Please check permissions and try again.`);
         setIsCameraOn(false);
       }
     }
@@ -77,36 +88,39 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
   };
 
   useEffect(() => {
-    return () => {
-      stopCamera(); // Cleanup on unmount
-    };
+    // General cleanup on unmount
+    return () => stopCamera();
   }, []);
 
-  // New useEffect to animate progress bar
+  useEffect(() => {
+    if (isProfilePicModalOpen && profilePicStep === 'capture') {
+      startCamera('user');
+    } else if (!isProfilePicModalOpen) {
+      // If the main camera was on before opening the modal, this will stop it.
+      // A better approach would be to restore state, but for now this is simpler.
+      stopCamera();
+    }
+  }, [isProfilePicModalOpen, profilePicStep]);
+
   useEffect(() => {
     let interval: number;
     if (isAnalysisRunning) {
         setAnalysisProgress(0);
         interval = window.setInterval(() => {
             setAnalysisProgress(prev => {
-                if (prev >= 95) { // Stop before 100%, let analysis completion set it
+                if (prev >= 95) {
                     clearInterval(interval);
                     return prev;
                 }
-                // Animate progress with some randomness to look more realistic
                 const increment = 5 + Math.random() * 10;
                 return Math.min(prev + increment, 95);
             });
-        }, 300); // Slower interval for smoother feel
+        }, 300);
     }
-
     return () => {
-        if (interval) {
-            clearInterval(interval);
-        }
+        if (interval) clearInterval(interval);
     };
 }, [isAnalysisRunning]);
-
 
   const analyzeImage = useCallback(async (imageDataUrl: string, currentSharpness: number) => {
     if (!canvasRef.current) return;
@@ -128,7 +142,7 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
         ctx.drawImage(img, 0, 0);
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         
-        const focusThresholdRatio = 8 / 100; // Ratio from original constants
+        const focusThresholdRatio = 8 / 100;
 
         const [qualityReport, qrCodeResult] = await Promise.all([
             analyzeImageQuality(imageData, { blurThreshold: currentSharpness, focusThreshold: currentSharpness * focusThresholdRatio }),
@@ -136,19 +150,15 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
         ]);
         
         setImageQualityReport(qualityReport);
-        if (qrCodeResult) {
-            setQrCodeData(qrCodeResult.data);
-        }
+        if (qrCodeResult) setQrCodeData(qrCodeResult.data);
         
-        setAnalysisProgress(100); // Finalize progress
-        setTimeout(() => { // Give user time to see 100%
-            setIsAnalysisRunning(false);
-        }, 500);
+        setAnalysisProgress(100);
+        setTimeout(() => setIsAnalysisRunning(false), 500);
     };
     img.src = imageDataUrl;
   }, []);
   
-  const generatePreprocessedPreview = useCallback(async (imageDataUrl: string, C: number) => {
+  const generatePreprocessedPreview = useCallback(async (imageDataUrl: string, C: number, clip: number, grid: number) => {
     if (!canvasRef.current) return;
     setIsPreprocessingPreview(true);
     const canvas = canvasRef.current;
@@ -164,7 +174,11 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
         ctx.drawImage(img, 0, 0);
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         try {
-            const preprocessed = await preprocessImageForOCR(imageData, { binarizationConstantC: C });
+            const preprocessed = await preprocessImageForOCR(imageData, {
+                binarizationConstantC: C,
+                claheClipLimit: clip,
+                claheGridSize: grid,
+            });
             setPreprocessedPreview(preprocessed.ocrOptimizedPng);
         } catch (e) {
             console.error("Failed to generate preview:", e);
@@ -175,7 +189,6 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
     img.src = imageDataUrl;
   }, []);
 
-  // Re-run sharpness analysis on slider change with debounce
   useEffect(() => {
     if (capturedImage) {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -188,19 +201,17 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
     }
   }, [sharpnessSensitivity, capturedImage, analyzeImage]);
 
-  // Re-run preprocessing preview on slider change with debounce
   useEffect(() => {
     if (capturedImage) {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
       debounceTimer.current = window.setTimeout(() => {
-        generatePreprocessedPreview(`data:${capturedImage.mimeType};base64,${capturedImage.data}`, binarizationConstant);
+        generatePreprocessedPreview(`data:${capturedImage.mimeType};base64,${capturedImage.data}`, binarizationConstant, claheClipLimit, claheGridSize);
       }, 300);
     }
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     }
-  }, [binarizationConstant, capturedImage, generatePreprocessedPreview]);
-
+  }, [binarizationConstant, claheClipLimit, claheGridSize, capturedImage, generatePreprocessedPreview]);
 
   const handleCapture = useCallback(() => {
     if (videoRef.current && canvasRef.current) {
@@ -217,10 +228,10 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
         const base64Data = dataUrl.split(',')[1];
         setCapturedImage({ data: base64Data, mimeType });
         analyzeImage(dataUrl, sharpnessSensitivity);
-        generatePreprocessedPreview(dataUrl, binarizationConstant);
+        generatePreprocessedPreview(dataUrl, binarizationConstant, claheClipLimit, claheGridSize);
       }
     }
-  }, [analyzeImage, generatePreprocessedPreview, sharpnessSensitivity, binarizationConstant]);
+  }, [analyzeImage, generatePreprocessedPreview, sharpnessSensitivity, binarizationConstant, claheClipLimit, claheGridSize]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -232,7 +243,7 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
         const base64Data = dataUrl.split(',')[1];
         setCapturedImage({ data: base64Data, mimeType: file.type });
         analyzeImage(dataUrl, sharpnessSensitivity);
-        generatePreprocessedPreview(dataUrl, binarizationConstant);
+        generatePreprocessedPreview(dataUrl, binarizationConstant, claheClipLimit, claheGridSize);
       };
       reader.readAsDataURL(file);
     }
@@ -249,7 +260,12 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
     setShowAdvancedSettings(false);
     setSharpnessSensitivity(100);
     setBinarizationConstant(7);
+    setClaheClipLimit(2.0);
+    setClaheGridSize(8);
     setPreprocessedPreview(null);
+    setConfirmedProfilePic(null);
+    setCapturedProfilePic(null);
+    setIsProfilePicModalOpen(false);
   };
   
   const submitForExtraction = async (image: { data: string; mimeType: string }) => {
@@ -271,7 +287,11 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
 
         const preprocessedImages = await preprocessImageForOCR(
           ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height),
-          { binarizationConstantC: binarizationConstant }
+          { 
+              binarizationConstantC: binarizationConstant,
+              claheClipLimit: claheClipLimit,
+              claheGridSize: claheGridSize,
+          }
         );
         const preprocessedBase64 = preprocessedImages.ocrOptimizedPng.split(',')[1];
         const preprocessedThumbnailBase64 = preprocessedImages.thumbnailJpeg.split(',')[1];
@@ -297,10 +317,12 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
             mergedData.confidenceScore = textOnlyData.confidenceScore;
         }
         
-        // Attach the preprocessed image and thumbnail for previewing in the next step
         mergedData.preprocessedBase64Image = preprocessedBase64;
         mergedData.preprocessedThumbnailBase64Image = preprocessedThumbnailBase64;
         mergedData.extractionTimestamp = new Date().toISOString();
+        if (confirmedProfilePic) {
+            mergedData.profilePictureBase64 = confirmedProfilePic.split(',')[1];
+        }
 
         onIDDataExtracted(mergedData);
         clearCapture();
@@ -363,7 +385,7 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
                 await submitForExtraction(newImage);
             } else {
                 analyzeImage(currentImage, sharpnessSensitivity);
-                generatePreprocessedPreview(currentImage, binarizationConstant);
+                generatePreprocessedPreview(currentImage, binarizationConstant, claheClipLimit, claheGridSize);
             }
         } catch(e) {
             console.error(e);
@@ -376,6 +398,41 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
         }
     }
   };
+
+  // --- Profile Picture Functions ---
+  const handleTakeProfilePic = useCallback(() => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.save();
+        ctx.translate(video.videoWidth, 0);
+        ctx.scale(-1, 1); // Flip horizontally for selfie view
+        ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+        ctx.restore();
+
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        setCapturedProfilePic(dataUrl);
+        setProfilePicStep('preview');
+        stopCamera();
+      }
+    }
+  }, []);
+
+  const handleConfirmProfilePic = useCallback(() => {
+    setConfirmedProfilePic(capturedProfilePic);
+    setIsProfilePicModalOpen(false);
+    setProfilePicStep('capture'); // Reset for next time
+    setCapturedProfilePic(null);
+  }, [capturedProfilePic]);
+
+  const handleRetakeProfilePic = useCallback(() => {
+    setCapturedProfilePic(null);
+    setProfilePicStep('capture');
+  }, []);
 
   return (
     <div className="bg-theme-card p-6 rounded-lg shadow-md border border-theme-border text-theme-text">
@@ -408,7 +465,7 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
                         ) : (
                             <div className="text-center">
                                 <div className="flex justify-center flex-wrap gap-4">
-                                    <Button onClick={startCamera} variant="primary">Start Camera</Button>
+                                    <Button onClick={() => startCamera('environment')} variant="primary">Start Camera</Button>
                                     <Button onClick={() => fileInputRef.current?.click()} variant="secondary">Upload Image</Button>
                                 </div>
                                 <p className="text-xs text-gray-500 mt-2">Accepted formats: JPEG, PNG, WebP, HEIC/HEIF</p>
@@ -429,14 +486,7 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
                         <div className="text-center p-4">
                             <p className="text-lg text-gray-500 mb-2">Analyzing image quality...</p>
                             <div className="w-full bg-gray-200 dark:bg-slate-700 rounded-full h-4 mb-2 overflow-hidden border border-theme-border">
-                                <div
-                                    className="bg-theme-primary h-full rounded-full transition-all duration-300 ease-out"
-                                    style={{ width: `${analysisProgress}%` }}
-                                    aria-valuenow={analysisProgress}
-                                    aria-valuemin={0}
-                                    aria-valuemax={100}
-                                    role="progressbar"
-                                ></div>
+                                <div className="bg-theme-primary h-full rounded-full transition-all duration-300 ease-out" style={{ width: `${analysisProgress}%` }} role="progressbar"></div>
                             </div>
                             <p className="text-xl font-bold text-theme-primary">{Math.round(analysisProgress)}%</p>
                         </div>
@@ -445,89 +495,49 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
                         <div className="border-t border-theme-border pt-4">
                             <h4 className="font-semibold text-lg mb-2">Image Quality Analysis</h4>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                                <div className="p-3 bg-gray-100 dark:bg-slate-700 rounded-md">
-                                    <p className="text-sm font-medium">Overall</p>
-                                    <p className="text-2xl font-bold">{imageQualityReport.overallQualityScore}<span className="text-base">%</span></p>
-                                </div>
-                                <div className="p-3 bg-gray-100 dark:bg-slate-700 rounded-md">
-                                    <p className="text-sm font-medium">Sharpness</p>
-                                    <p className="text-2xl font-bold">{imageQualityReport.sharpnessScore}<span className="text-base">%</span></p>
-                                </div>
-                                <div className="p-3 bg-gray-100 dark:bg-slate-700 rounded-md">
-                                    <p className="text-sm font-medium">Lighting</p>
-                                    <p className="text-2xl font-bold">{imageQualityReport.lightingScore}<span className="text-base">%</span></p>
-                                </div>
-                                <div className="p-3 bg-gray-100 dark:bg-slate-700 rounded-md">
-                                    <p className="text-sm font-medium">Resolution</p>
-                                    <p className={`text-2xl font-bold ${imageQualityReport.isLowResolution ? 'text-red-500' : ''}`}>{imageQualityReport.isLowResolution ? 'Low' : 'OK'}</p>
-                                </div>
+                                <div className="p-3 bg-gray-100 dark:bg-slate-700 rounded-md"><p className="text-sm font-medium">Overall</p><p className="text-2xl font-bold">{imageQualityReport.overallQualityScore}<span className="text-base">%</span></p></div>
+                                <div className="p-3 bg-gray-100 dark:bg-slate-700 rounded-md"><p className="text-sm font-medium">Sharpness</p><p className="text-2xl font-bold">{imageQualityReport.sharpnessScore}<span className="text-base">%</span></p></div>
+                                <div className="p-3 bg-gray-100 dark:bg-slate-700 rounded-md"><p className="text-sm font-medium">Lighting</p><p className="text-2xl font-bold">{imageQualityReport.lightingScore}<span className="text-base">%</span></p></div>
+                                <div className="p-3 bg-gray-100 dark:bg-slate-700 rounded-md"><p className="text-sm font-medium">Resolution</p><p className={`text-2xl font-bold ${imageQualityReport.isLowResolution ? 'text-red-500' : ''}`}>{imageQualityReport.isLowResolution ? 'Low' : 'OK'}</p></div>
                             </div>
-                            {imageQualityReport.tips.length > 0 && (
-                                <div className="mt-4 p-3 bg-yellow-100 text-yellow-800 rounded-md">
-                                    <h5 className="font-bold">Tips for a better scan:</h5>
-                                    <ul className="list-disc list-inside text-sm">
-                                        {imageQualityReport.tips.map((tip, i) => <li key={i}>{tip}</li>)}
-                                    </ul>
-                                </div>
-                            )}
-                            {qrCodeData && (
-                                <div className="mt-4 p-3 bg-green-100 text-green-800 rounded-md">
-                                    <h5 className="font-bold">QR Code Detected:</h5>
-                                    <p className="text-sm break-all">{qrCodeData}</p>
-                                </div>
-                            )}
+                            {imageQualityReport.tips.length > 0 && (<div className="mt-4 p-3 bg-yellow-100 text-yellow-800 rounded-md"><h5 className="font-bold">Tips:</h5><ul className="list-disc list-inside text-sm">{imageQualityReport.tips.map((tip, i) => <li key={i}>{tip}</li>)}</ul></div>)}
+                            {qrCodeData && (<div className="mt-4 p-3 bg-green-100 text-green-800 rounded-md"><h5 className="font-bold">QR Code Detected:</h5><p className="text-sm break-all">{qrCodeData}</p></div>)}
                         </div>
                     )}
-
-                    <div className="border-t border-theme-border pt-4">
-                        <Button variant="secondary" size="sm" onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}>
-                            {showAdvancedSettings ? 'Hide' : 'Show'} Preprocessing Controls
-                        </Button>
-                        {showAdvancedSettings && (
-                            <div className="mt-4 p-4 bg-gray-100 dark:bg-slate-800 rounded-lg border border-theme-border space-y-4">
-                                <div>
-                                    <label htmlFor="sharpness-slider" className="block text-sm font-medium text-theme-text mb-1">Sharpness Sensitivity: <span className="font-bold">{sharpnessSensitivity}</span></label>
-                                    <input id="sharpness-slider" type="range" min="50" max="200" value={sharpnessSensitivity} onChange={(e) => setSharpnessSensitivity(parseInt(e.target.value, 10))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" />
-                                    <p className="text-xs text-gray-500 mt-1">Adjusts the blur/focus detection threshold. Higher values require a sharper image.</p>
-                                </div>
-                                <div>
-                                    <label htmlFor="binarization-slider" className="block text-sm font-medium text-theme-text mb-1">Binarization Contrast: <span className="font-bold">{binarizationConstant}</span></label>
-                                    <input id="binarization-slider" type="range" min="1" max="15" value={binarizationConstant} onChange={(e) => setBinarizationConstant(parseInt(e.target.value, 10))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" />
-                                     <p className="text-xs text-gray-500 mt-1">Adjusts the threshold for converting the image to black & white for OCR. Higher values make text thinner.</p>
-                                </div>
-                                <div>
-                                    <p className="text-sm font-medium text-center text-theme-text mb-2">OCR Preprocessed Preview</p>
-                                    <div className="bg-gray-200 dark:bg-gray-900 rounded-md p-2 flex justify-center items-center min-h-[10rem]">
-                                        {isPreprocessingPreview ? <LoadingSpinner /> : (
-                                            preprocessedPreview ? 
-                                            <img src={preprocessedPreview} alt="Preprocessed Preview" className="max-w-full max-h-48 object-contain rounded" />
-                                            : <p className="text-gray-500 text-sm">Preview will appear here.</p>
-                                        )}
-                                    </div>
-                                </div>
+                    
+                    <div className="text-center p-4 border-y border-theme-border">
+                        <h4 className="font-semibold text-lg mb-2">Voter Profile Picture</h4>
+                        {confirmedProfilePic ? (
+                            <div className="flex flex-col items-center gap-2">
+                                <img src={confirmedProfilePic} alt="Voter profile" className="w-24 h-24 rounded-full object-cover border-2 border-theme-border" />
+                                <Button variant="secondary" size="sm" onClick={() => { setCapturedProfilePic(null); setProfilePicStep('capture'); setIsProfilePicModalOpen(true); }}>Change Photo</Button>
                             </div>
+                        ) : (
+                            <div>
+                                <p className="text-sm text-gray-500 mb-2">Optionally, add a live photo of the voter.</p>
+                                <Button variant="secondary" onClick={() => { setCapturedProfilePic(null); setProfilePicStep('capture'); setIsProfilePicModalOpen(true); }}>Add Profile Photo</Button>
+                            </div>
+                        )}
+                    </div>
+
+                    <div>
+                        <Button variant="secondary" size="sm" onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}>{showAdvancedSettings ? 'Hide' : 'Show'} Preprocessing</Button>
+                        {showAdvancedSettings && (
+                           <div className="mt-4 p-4 bg-gray-100 dark:bg-slate-800 rounded-lg border border-theme-border space-y-4">
+                                <div><label htmlFor="sharpness-slider" className="block text-sm font-medium text-theme-text mb-1">Sharpness Sensitivity: <span className="font-bold">{sharpnessSensitivity}</span></label><input id="sharpness-slider" type="range" min="50" max="200" value={sharpnessSensitivity} onChange={(e) => setSharpnessSensitivity(parseInt(e.target.value, 10))} className="w-full" /><p className="text-xs text-gray-500 mt-1">Higher values require a sharper image.</p></div>
+                                <div><label htmlFor="binarization-slider" className="block text-sm font-medium text-theme-text mb-1">Binarization Contrast: <span className="font-bold">{binarizationConstant}</span></label><input id="binarization-slider" type="range" min="1" max="15" value={binarizationConstant} onChange={(e) => setBinarizationConstant(parseInt(e.target.value, 10))} className="w-full" /><p className="text-xs text-gray-500 mt-1">Adjusts black & white conversion. Higher values make text thinner.</p></div>
+                                <div><label htmlFor="clahe-clip-slider" className="block text-sm font-medium text-theme-text mb-1">CLAHE Clip Limit: <span className="font-bold">{claheClipLimit.toFixed(1)}</span></label><input id="clahe-clip-slider" type="range" min="1.0" max="10.0" step="0.5" value={claheClipLimit} onChange={(e) => setClaheClipLimit(parseFloat(e.target.value))} className="w-full" /><p className="text-xs text-gray-500 mt-1">Controls local contrast. Higher values increase contrast but can add noise.</p></div>
+                                <div><label htmlFor="clahe-grid-slider" className="block text-sm font-medium text-theme-text mb-1">CLAHE Grid Size: <span className="font-bold">{claheGridSize}x{claheGridSize}</span></label><input id="clahe-grid-slider" type="range" min="2" max="16" step="2" value={claheGridSize} onChange={(e) => setClaheGridSize(parseInt(e.target.value, 10))} className="w-full" /><p className="text-xs text-gray-500 mt-1">Number of tiles for local enhancement.</p></div>
+                                <div><p className="text-sm font-medium text-center text-theme-text mb-2">OCR Preview</p><div className="bg-gray-200 dark:bg-gray-900 rounded-md p-2 flex justify-center items-center min-h-[10rem]">{isPreprocessingPreview ? <LoadingSpinner /> : (preprocessedPreview ? <img src={preprocessedPreview} alt="Preprocessed Preview" className="max-w-full max-h-48 object-contain rounded" />: <p className="text-gray-500 text-sm">Preview appears here.</p>)}</div></div>
+                           </div>
                         )}
                     </div>
                     
                     <div className="flex justify-center flex-wrap gap-4 pt-4 border-t border-theme-border">
                         <Button onClick={clearCapture} variant="secondary">Clear</Button>
                         <Button onClick={handleOpenEditModal} variant="secondary">Edit Image</Button>
-                        <Button 
-                            onClick={handleTransformAndExtract} 
-                            variant="secondary"
-                            disabled={isAnalysisRunning}
-                            title="Edit the image and then immediately submit for data extraction."
-                        >
-                            Apply Transformations
-                        </Button>
-                        <Button 
-                            onClick={() => submitForExtraction(capturedImage)} 
-                            variant="primary" 
-                            disabled={isAnalysisRunning || (imageQualityReport && imageQualityReport.overallQualityScore < 50)}
-                            title={imageQualityReport && imageQualityReport.overallQualityScore < 50 ? "Image quality is too low for reliable extraction." : ""}
-                        >
-                            Extract Data
-                        </Button>
+                        <Button onClick={handleTransformAndExtract} variant="secondary" disabled={isAnalysisRunning} title="Edit & Extract">Apply Transformations</Button>
+                        <Button onClick={() => submitForExtraction(capturedImage)} variant="primary" disabled={isAnalysisRunning || (imageQualityReport && imageQualityReport.overallQualityScore < 50)} title={imageQualityReport && imageQualityReport.overallQualityScore < 50 ? "Image quality too low." : ""}>Extract Data</Button>
                     </div>
                 </div>
             )}
@@ -536,32 +546,31 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
 
       <Modal isOpen={isEditModalOpen} onClose={handleCloseEditModal} title="Manual Image Editor">
         {editImageSrc ? (
-          <div className="flex flex-col items-center w-full">
-            <div className="relative w-full max-w-lg mb-4 bg-gray-200 dark:bg-gray-800 rounded-md overflow-hidden">
-                <img 
-                    src={editImageSrc} 
-                    alt="Edit preview" 
-                    className="w-full h-auto"
-                    style={{
-                        transform: `rotate(${rotation}deg)`,
-                        filter: `brightness(${brightness}%) contrast(${contrast}%)`,
-                        transition: 'transform 0.2s, filter 0.2s',
-                    }}
-                />
-            </div>
-            <div className="w-full space-y-4">
-              <div className="flex items-center gap-2"><label htmlFor="brightness-slider" className="text-sm font-medium whitespace-nowrap w-20">Brightness:</label><input id="brightness-slider" type="range" min="50" max="150" value={brightness} onChange={(e) => setBrightness(parseInt(e.target.value, 10))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" /><span className="text-sm w-10 text-right">{brightness}%</span></div>
-              <div className="flex items-center gap-2"><label htmlFor="contrast-slider" className="text-sm font-medium whitespace-nowrap w-20">Contrast:</label><input id="contrast-slider" type="range" min="50" max="150" value={contrast} onChange={(e) => setContrast(parseInt(e.target.value, 10))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" /><span className="text-sm w-10 text-right">{contrast}%</span></div>
-              <div className="flex items-center gap-2"><label className="text-sm font-medium whitespace-nowrap w-20">Rotate:</label><Button size="sm" variant="secondary" onClick={() => setRotation(r => (r + 270) % 360)}>-90°</Button><Button size="sm" variant="secondary" onClick={() => setRotation(r => (r + 90) % 360)}>+90°</Button></div>
-            </div>
-            <div className="flex justify-end space-x-2 mt-6 w-full">
-              <Button variant="secondary" onClick={handleCloseEditModal}>Cancel</Button>
-              <Button variant="primary" onClick={handleApplyEdits}>
-                {isExtractingAfterEdit ? 'Apply & Extract' : 'Apply & Save'}
-              </Button>
-            </div>
-          </div>
+          <div className="flex flex-col items-center w-full"><div className="relative w-full max-w-lg mb-4 bg-gray-200 dark:bg-gray-800 rounded-md overflow-hidden"><img src={editImageSrc} alt="Edit preview" className="w-full h-auto" style={{transform: `rotate(${rotation}deg)`, filter: `brightness(${brightness}%) contrast(${contrast}%)`, transition: 'transform 0.2s, filter 0.2s',}}/></div><div className="w-full space-y-4"><div className="flex items-center gap-2"><label htmlFor="brightness-slider" className="text-sm font-medium whitespace-nowrap w-20">Brightness:</label><input id="brightness-slider" type="range" min="50" max="150" value={brightness} onChange={(e) => setBrightness(parseInt(e.target.value, 10))} className="w-full" /><span className="text-sm w-10 text-right">{brightness}%</span></div><div className="flex items-center gap-2"><label htmlFor="contrast-slider" className="text-sm font-medium whitespace-nowrap w-20">Contrast:</label><input id="contrast-slider" type="range" min="50" max="150" value={contrast} onChange={(e) => setContrast(parseInt(e.target.value, 10))} className="w-full" /><span className="text-sm w-10 text-right">{contrast}%</span></div><div className="flex items-center gap-2"><label className="text-sm font-medium whitespace-nowrap w-20">Rotate:</label><Button size="sm" variant="secondary" onClick={() => setRotation(r => (r + 270) % 360)}>-90°</Button><Button size="sm" variant="secondary" onClick={() => setRotation(r => (r + 90) % 360)}>+90°</Button></div></div><div className="flex justify-end space-x-2 mt-6 w-full"><Button variant="secondary" onClick={handleCloseEditModal}>Cancel</Button><Button variant="primary" onClick={handleApplyEdits}>{isExtractingAfterEdit ? 'Apply & Extract' : 'Apply & Save'}</Button></div></div>
         ) : (<p className="text-center p-4">No image data to edit.</p>)}
+      </Modal>
+
+      <Modal isOpen={isProfilePicModalOpen} onClose={() => setIsProfilePicModalOpen(false)} title="Capture Profile Picture">
+        <div className="flex flex-col items-center">
+            {profilePicStep === 'capture' && (
+                <>
+                    <div className="relative w-64 h-64 rounded-full overflow-hidden bg-gray-800 border-4 border-theme-border mb-4">
+                        <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform -scale-x-100"></video>
+                        {!isCameraOn && <div className="absolute inset-0 flex items-center justify-center"><LoadingSpinner /></div>}
+                    </div>
+                    <Button onClick={handleTakeProfilePic} variant="primary" disabled={!isCameraOn}>Take Photo</Button>
+                </>
+            )}
+            {profilePicStep === 'preview' && capturedProfilePic && (
+                <>
+                    <img src={capturedProfilePic} alt="Profile preview" className="w-64 h-64 rounded-full object-cover border-4 border-theme-border mb-4" />
+                    <div className="flex gap-4">
+                        <Button onClick={handleRetakeProfilePic} variant="secondary">Retake</Button>
+                        <Button onClick={handleConfirmProfilePic} variant="primary">Confirm</Button>
+                    </div>
+                </>
+            )}
+        </div>
       </Modal>
     </div>
   );

@@ -41,6 +41,7 @@ export interface IDCardData {
   confidenceScore?: number; // Added for Gemini API confidence
   facialDescriptionConfidence?: number; // Confidence for the facial description
   extractionTimestamp?: string; // Timestamp for when Gemini processing was completed
+  profilePictureBase64?: string; // The base64 of the live captured profile picture
 }
 
 export interface DetectedTextBlock {

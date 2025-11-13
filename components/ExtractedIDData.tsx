@@ -465,51 +465,74 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
           </p>
       )}
 
-
-      {idCardData.base64Image && idCardData.imageMimeType && (
-        <div className="mb-6 flex flex-col items-center">
-          <p className="text-sm text-gray-500 mb-2">Scanned ID Card Image (Scroll to zoom, drag to pan):</p>
-          <div className="flex justify-center flex-wrap gap-2 mb-2">
-            <Button variant="secondary" size="sm" onClick={() => setShowLandmarks(!showLandmarks)} className="mb-2" disabled={!hasLandmarks}>
-              {showLandmarks ? 'Hide Facial Landmarks' : 'Show Facial Landmarks'}
-            </Button>
-            {idCardData.preprocessedBase64Image && (
-              <Button variant="secondary" size="sm" onClick={() => setShowBwImage(!showBwImage)} className="mb-2">
-                {showBwImage ? 'Show Original Color' : 'Show B&W for OCR'}
-              </Button>
-            )}
-          </div>
-          <div
-            ref={mainViewContainerRef}
-            onWheel={mainViewHandleWheel}
-            onPointerDown={customMainHandlePointerDown}
-            onPointerMove={customMainHandlePointerMove}
-            onPointerUp={customMainHandlePointerUp}
-            onPointerCancel={mainViewHandlePointerUp}
-            className="relative w-full max-w-sm h-auto aspect-[1.586] bg-gray-200 dark:bg-gray-800 flex justify-center items-center overflow-hidden rounded-md border border-theme-border shadow-sm"
-            style={mainViewCursorStyle}
-            aria-label="Scanned ID card image. Scroll to zoom, drag to pan, click to open larger view."
-          >
-            {mainViewImageNaturalSize ? (
-              <canvas
-                ref={canvasRef}
-                style={{
-                  ...mainViewTransformStyle,
-                  display: 'block',
-                  position: 'absolute',
-                  width: mainViewImageNaturalSize.width,
-                  height: mainViewImageNaturalSize.height,
-                }}
-              ></canvas>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 items-start">
+        <div className="md:col-span-1 flex flex-col items-center justify-center">
+            {idCardData.profilePictureBase64 ? (
+                <>
+                    <p className="text-sm font-semibold text-gray-500 mb-2">Voter Profile Picture</p>
+                    <img 
+                        src={`data:image/jpeg;base64,${idCardData.profilePictureBase64}`} 
+                        alt="Voter's profile" 
+                        className="w-40 h-40 rounded-full object-cover border-4 border-theme-border shadow-lg" 
+                    />
+                </>
             ) : (
-              <p className="text-center p-4 text-sm text-gray-500">Loading image...</p>
+                <>
+                    <p className="text-sm font-semibold text-gray-500 mb-2">Voter Profile Picture</p>
+                    <div className="w-40 h-40 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-center text-sm text-gray-500 p-4 border-2 border-dashed border-theme-border">
+                        No live profile picture was captured for this entry.
+                    </div>
+                </>
             )}
-            {mainViewImageNaturalSize && (
-              <ZoomControls onZoomIn={mainViewZoomIn} onZoomOut={mainViewZoomOut} onReset={mainViewResetZoomPan} />
-            )}
-          </div>
         </div>
-      )}
+        <div className="md:col-span-2">
+            {idCardData.base64Image && idCardData.imageMimeType && (
+                <div className="flex flex-col items-center">
+                    <p className="text-sm text-gray-500 mb-2">Scanned ID Card Image (Scroll to zoom, drag to pan):</p>
+                    <div className="flex justify-center flex-wrap gap-2 mb-2">
+                        <Button variant="secondary" size="sm" onClick={() => setShowLandmarks(!showLandmarks)} className="mb-2" disabled={!hasLandmarks}>
+                        {showLandmarks ? 'Hide Facial Landmarks' : 'Show Facial Landmarks'}
+                        </Button>
+                        {idCardData.preprocessedBase64Image && (
+                        <Button variant="secondary" size="sm" onClick={() => setShowBwImage(!showBwImage)} className="mb-2">
+                            {showBwImage ? 'Show Original Color' : 'Show B&W for OCR'}
+                        </Button>
+                        )}
+                    </div>
+                    <div
+                        ref={mainViewContainerRef}
+                        onWheel={mainViewHandleWheel}
+                        onPointerDown={customMainHandlePointerDown}
+                        onPointerMove={customMainHandlePointerMove}
+                        onPointerUp={customMainHandlePointerUp}
+                        onPointerCancel={mainViewHandlePointerUp}
+                        className="relative w-full max-w-sm h-auto aspect-[1.586] bg-gray-200 dark:bg-gray-800 flex justify-center items-center overflow-hidden rounded-md border border-theme-border shadow-sm"
+                        style={mainViewCursorStyle}
+                        aria-label="Scanned ID card image. Scroll to zoom, drag to pan, click to open larger view."
+                    >
+                        {mainViewImageNaturalSize ? (
+                        <canvas
+                            ref={canvasRef}
+                            style={{
+                            ...mainViewTransformStyle,
+                            display: 'block',
+                            position: 'absolute',
+                            width: mainViewImageNaturalSize.width,
+                            height: mainViewImageNaturalSize.height,
+                            }}
+                        ></canvas>
+                        ) : (
+                        <p className="text-center p-4 text-sm text-gray-500">Loading image...</p>
+                        )}
+                        {mainViewImageNaturalSize && (
+                        <ZoomControls onZoomIn={mainViewZoomIn} onZoomOut={mainViewZoomOut} onReset={mainViewResetZoomPan} />
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    </div>
+
 
       <div className="flex justify-end mb-4">
         <Button variant="secondary" size="sm" onClick={() => setShowAllDetails(!showAllDetails)}>

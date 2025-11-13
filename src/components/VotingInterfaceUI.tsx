@@ -31,6 +31,11 @@ const VotingInterfaceUI: React.FC<VotingInterfaceUIProps> = ({ entry, onConfirmV
       setIsVoting(false);
     }
   };
+  
+  const profileImageSrc = entry.idCardData.profilePictureBase64
+    ? `data:image/jpeg;base64,${entry.idCardData.profilePictureBase64}`
+    : `data:${entry.idCardData.imageMimeType};base64,${entry.idCardData.base64Image}`;
+
 
   return (
     <div className="bg-theme-card p-6 rounded-lg shadow-xl border-2 border-theme-primary text-theme-text max-w-2xl mx-auto">
@@ -39,7 +44,7 @@ const VotingInterfaceUI: React.FC<VotingInterfaceUIProps> = ({ entry, onConfirmV
       
       <div className="flex flex-col md:flex-row items-center gap-6 mb-6 bg-theme-background p-4 rounded-lg border border-theme-border">
         <img
-          src={`data:${entry.idCardData.imageMimeType};base64,${entry.idCardData.base64Image}`}
+          src={profileImageSrc}
           alt={`Photo of ${entry.idCardData.fullName}`}
           className="w-32 h-32 rounded-full object-cover border-4 border-theme-border shadow-md"
         />

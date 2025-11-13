@@ -81,10 +81,10 @@ const ManualEntryForm: React.FC<ManualEntryFormProps> = ({ onAddEntry, onEntryAd
         return;
       }
 
-      // Size validation (e.g., max 10MB)
-      const maxSizeInBytes = 10 * 1024 * 1024;
+      // Size validation (e.g., max 5MB)
+      const maxSizeInBytes = 5 * 1024 * 1024;
       if (file.size > maxSizeInBytes) {
-        setErrors(prev => ({ ...prev, image: 'File is too large. Maximum size is 10MB.' }));
+        setErrors(prev => ({ ...prev, image: 'File is too large. Maximum size is 5MB.' }));
         setBase64Image(null);
         setImageMimeType(null);
         if (e.target) e.target.value = ''; // Reset file input
