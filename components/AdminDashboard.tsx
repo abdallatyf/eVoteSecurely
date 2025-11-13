@@ -1,9 +1,7 @@
-
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 // Fix: Import ChartType and ChartDesign from types.ts to break circular dependency.
-import { VotingEntry, ValidationStatus, Theme, AdminUser, AdminRole, IDCardData, ChartType, ChartDesign } from '../types';
+import { VotingEntry, ValidationStatus, Theme, AdminUser, AdminRole, IDCardData, ChartType, ChartDesign, Task, TaskStatus } from '../types';
 import AdminValidationPanel from './AdminValidationPanel';
 import VotingEventCard from './VotingEventCard';
 import { useAuth } from './AuthProvider';
@@ -18,6 +16,8 @@ import { votingDB } from '../services/dbService'; // Import the IndexedDB servic
 import GovernmentStructure from './GovernmentStructure';
 import ManualEntryForm from './ManualEntryForm';
 import DatabaseUsagePanel from './DatabaseUsagePanel';
+import MyTasksPanel from './MyTasksPanel'; // Import MyTasksPanel
+import TaskBoard from './TaskBoard'; // Import TaskBoard
 
 interface AdminDashboardProps {
   allVotingEntries: VotingEntry[];
@@ -26,7 +26,7 @@ interface AdminDashboardProps {
   onAddEntry: (idCardData: IDCardData) => Promise<VotingEntry>;
 }
 
-type AdminTab = 'management' | 'validation' | 'manualEntry' | 'settings' | 'structure';
+type AdminTab = 'management' | 'validation' | 'manualEntry' | 'settings' | 'structure' | 'tasks';
 type SortByType = 'fullName' | 'timestamp' | 'validationStatus' | 'assignedPosition' | 'idNumber' | 'confidenceScore';
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpdateEntry, onClearAllEntries, onAddEntry }) => {
@@ -41,6 +41,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
   const [validatedVoteCount, setValidatedVoteCount] = useState<number>(0);
   const [pendingEntries, setPendingEntries] = useState<VotingEntry[]>([]);
   const [isClearAllModalOpen, setIsClearAllModalOpen] = useState(false);
+
+  // Task states
+  const [allTasks, setAllTasks] = useState<Task[]>([]);
+  const [allAdmins, setAllAdmins] = useState<AdminUser[]>([]);
 
   // Filtering and sorting states
   const [filterStatus, setFilterStatus] = useState<ValidationStatus | 'ALL'>('ALL');
@@ -88,6 +92,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
     const pending = allVotingEntries.filter(entry => entry.validationStatus === ValidationStatus.PENDING);
     setPendingEntries(pending);
   }, [allVotingEntries]);
+  
+  // Effect to load tasks and admins
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        await votingDB.openDb();
+        const [tasks, admins] = await Promise.all([
+            votingDB.getAllTasks(),
+            votingDB.getAllAdminUsers()
+        ]);
+        setAllTasks(tasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+        setAllAdmins(admins);
+      } catch (error) {
+        console.error("Failed to load tasks or admins:", error);
+      }
+    };
+    loadData();
+  }, []);
 
   // Effect to persist settings to localStorage
   useEffect(() => {
@@ -280,6 +302,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
         role: newAdminRole,
       };
       await votingDB.addAdminUser(newAdmin);
+      setAllAdmins(prev => [...prev, newAdmin]);
       setCreateAdminSuccessMessage(`Admin user "${newAdmin.username}" with role "${newAdmin.role}" created successfully!`);
       setNewAdminUsername(''); setNewAdminPassword(''); setNewAdminFullName('');
     } catch (error) {
@@ -386,6 +409,44 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
     setFilterStatus('ALL');
   }, []);
 
+  // --- Task Callbacks ---
+  const handleAddTask = useCallback(async (newTaskData: Omit<Task, 'id' | 'createdAt'>) => {
+    const newTask: Task = {
+        ...newTaskData,
+        id: `task-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+    };
+    await votingDB.addTask(newTask);
+    setAllTasks(prev => [newTask, ...prev]);
+  }, []);
+
+  const handleUpdateTaskStatus = useCallback(async (taskId: string, newStatus: TaskStatus) => {
+    const taskToUpdate = allTasks.find(t => t.id === taskId);
+    if (taskToUpdate) {
+        const updatedTask = { ...taskToUpdate, status: newStatus };
+        await votingDB.updateTask(updatedTask);
+        setAllTasks(prev => prev.map(t => t.id === taskId ? updatedTask : t));
+    }
+  }, [allTasks]);
+
+  const handleDeleteTask = useCallback(async (taskId: string) => {
+    if (window.confirm("Are you sure you want to delete this task?")) {
+        await votingDB.deleteTask(taskId);
+        setAllTasks(prev => prev.filter(t => t.id !== taskId));
+    }
+  }, []);
+
+  const myTasks = useMemo(() => 
+    allTasks.filter(task => task.assignedToId === loggedInAdmin?.id)
+            .sort((a, b) => {
+                if(a.status === b.status) return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+                if(a.status === TaskStatus.DONE) return 1;
+                if(b.status === TaskStatus.DONE) return -1;
+                return 0;
+            }),
+    [allTasks, loggedInAdmin]
+  );
+
   const TabButton: React.FC<{ tabName: AdminTab; label: string; count?: number }> = ({ tabName, label, count }) => (
     <button
       onClick={() => setActiveTab(tabName)}
@@ -454,6 +515,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
             <p className="text-lg text-gray-500">Welcome, {loggedInAdmin?.fullName} ({loggedInAdmin?.role})!</p>
         </div>
         
+        <MyTasksPanel tasks={myTasks} onUpdateTaskStatus={handleUpdateTaskStatus} />
+
         <div className="border-b border-theme-border">
           <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
             <TabButton tabName="management" label="Entry Management" />
@@ -461,6 +524,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
             <TabButton tabName="manualEntry" label="Manual Entry" />
             {loggedInAdmin?.role === AdminRole.SUPER_ADMIN && (
               <>
+                <TabButton tabName="tasks" label="Tasks" />
                 <TabButton tabName="structure" label="Government Structure" />
                 <TabButton tabName="settings" label="Dashboard & Settings" />
               </>
@@ -622,6 +686,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
           )}
           {activeTab === 'manualEntry' && (
             <ManualEntryForm onAddEntry={onAddEntry} onEntryAdded={handleManualEntryAdded} />
+          )}
+          {activeTab === 'tasks' && loggedInAdmin?.role === AdminRole.SUPER_ADMIN && (
+             <TaskBoard 
+                tasks={allTasks}
+                admins={allAdmins}
+                currentAdmin={loggedInAdmin}
+                onAddTask={handleAddTask}
+                onUpdateTaskStatus={handleUpdateTaskStatus}
+                onDeleteTask={handleDeleteTask}
+             />
           )}
           {activeTab === 'structure' && loggedInAdmin?.role === AdminRole.SUPER_ADMIN && (
              <div className="space-y-4">

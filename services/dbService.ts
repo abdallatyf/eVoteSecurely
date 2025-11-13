@@ -1,10 +1,11 @@
-import { AdminUser, VotingEntry, IDCardData, HistoricalStructure } from '../types';
+import { AdminUser, VotingEntry, IDCardData, HistoricalStructure, Task } from '../types';
 
 const DB_NAME = 'VotingAppDB';
-const DB_VERSION = 2; // Incremented version to add new store
+const DB_VERSION = 3; // Incremented version to add new store
 const VOTING_ENTRIES_STORE = 'voting_entries';
 const ADMIN_USERS_STORE = 'admin_users';
 const GOVERNMENT_STRUCTURES_STORE = 'government_structures';
+const TASKS_STORE = 'tasks'; // New store name
 
 class VotingDB {
   private db: IDBDatabase | null = null;
@@ -35,6 +36,12 @@ class VotingDB {
         if (!db.objectStoreNames.contains(GOVERNMENT_STRUCTURES_STORE)) {
           const structuresStore = db.createObjectStore(GOVERNMENT_STRUCTURES_STORE, { keyPath: 'id' });
           structuresStore.createIndex('timestamp', 'timestamp', { unique: false });
+        }
+        // Create object store for tasks
+        if (!db.objectStoreNames.contains(TASKS_STORE)) {
+            const tasksStore = db.createObjectStore(TASKS_STORE, { keyPath: 'id' });
+            tasksStore.createIndex('assignedToId', 'assignedToId', { unique: false });
+            tasksStore.createIndex('createdAt', 'createdAt', { unique: false });
         }
       };
 
@@ -186,6 +193,43 @@ class VotingDB {
       store.transaction.oncomplete = () => resolve();
       store.transaction.onerror = () => reject(store.transaction.error);
       store.delete(id);
+    });
+  }
+
+  // --- Task Operations ---
+  async addTask(task: Task): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const store = this.getObjectStore(TASKS_STORE, 'readwrite');
+      store.transaction.oncomplete = () => resolve();
+      store.transaction.onerror = () => reject(store.transaction.error);
+      store.add(task);
+    });
+  }
+
+  async updateTask(task: Task): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const store = this.getObjectStore(TASKS_STORE, 'readwrite');
+      store.transaction.oncomplete = () => resolve();
+      store.transaction.onerror = () => reject(store.transaction.error);
+      store.put(task);
+    });
+  }
+  
+  async deleteTask(id: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const store = this.getObjectStore(TASKS_STORE, 'readwrite');
+      store.transaction.oncomplete = () => resolve();
+      store.transaction.onerror = () => reject(store.transaction.error);
+      store.delete(id);
+    });
+  }
+
+  async getAllTasks(): Promise<Task[]> {
+    return new Promise((resolve, reject) => {
+      const store = this.getObjectStore(TASKS_STORE, 'readonly');
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = (event) => reject((event.target as IDBRequest).error);
     });
   }
 }
