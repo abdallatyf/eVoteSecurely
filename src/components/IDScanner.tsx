@@ -14,6 +14,7 @@ interface IDScannerProps {
 
 const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
   const [isCameraOn, setIsCameraOn] = useState(false);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('Extracting data...');
   const [error, setError] = useState<string | null>(null);
@@ -51,33 +52,6 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const startCamera = async (facingMode: 'environment' | 'user' = 'environment') => {
-    stopCamera(); // Stop any existing stream
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode,
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-        });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          setIsCameraOn(true);
-          if (facingMode === 'environment') {
-            setCapturedImage(null);
-          }
-          setError(null);
-        }
-      } catch (err) {
-        console.error('Error accessing camera:', err);
-        setError(`Could not access the ${facingMode} camera. Please check permissions and try again.`);
-        setIsCameraOn(false);
-      }
-    }
-  };
-
   const stopCamera = () => {
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
@@ -85,6 +59,39 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
       videoRef.current.srcObject = null;
     }
     setIsCameraOn(false);
+  };
+
+  const startCamera = async (mode: 'environment' | 'user' = 'environment') => {
+    stopCamera(); // Stop any existing stream
+    setFacingMode(mode); // Keep track of the current mode
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: mode,
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+        });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          setIsCameraOn(true);
+          if (mode === 'environment') {
+            setCapturedImage(null);
+          }
+          setError(null);
+        }
+      } catch (err) {
+        console.error('Error accessing camera:', err);
+        setError(`Could not access the ${mode} camera. Please check permissions and try again.`);
+        setIsCameraOn(false);
+      }
+    }
+  };
+  
+  const handleSwitchCamera = () => {
+    const newMode = facingMode === 'environment' ? 'user' : 'environment';
+    startCamera(newMode);
   };
 
   useEffect(() => {
@@ -461,6 +468,12 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
                             <>
                                 <Button onClick={handleCapture} variant="primary">Capture Photo</Button>
                                 <Button onClick={stopCamera} variant="secondary">Stop Camera</Button>
+                                <Button onClick={handleSwitchCamera} variant="secondary" className="inline-flex items-center gap-2">
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                                  </svg>
+                                  Switch
+                                </Button>
                             </>
                         ) : (
                             <div className="text-center">
