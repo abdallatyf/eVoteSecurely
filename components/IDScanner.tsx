@@ -9,6 +9,8 @@ import Button from './Button';
 import LoadingSpinner from './LoadingSpinner';
 import Modal from './Modal';
 import Input from './Input';
+import useZoomPan from '../utils/useZoomPan';
+import ZoomControls from './ZoomControls';
 
 interface IDScannerProps {
   onIDDataExtracted: (idCardData: IDCardData) => void;
@@ -52,6 +54,29 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const modalPreviewContainerRef = useRef<HTMLDivElement>(null);
+    const {
+        transformStyle: modalTransform,
+        filterStyle: modalFilter,
+        cursorStyle: modalCursor,
+        handleWheel: modalHandleWheel,
+        handlePointerDown: modalHandlePointerDown,
+        handlePointerMove: modalHandlePointerMove,
+        handlePointerUp: modalHandlePointerUp,
+        handlePointerCancel: modalHandlePointerCancel,
+        imageNaturalSize: modalImageSize,
+        zoomIn: modalZoomIn,
+        zoomOut: modalZoomOut,
+        resetZoomPan: modalResetZoomPan,
+    } = useZoomPan({
+        containerRef: modalPreviewContainerRef,
+        imageSrc: editImageSrc,
+        imageMimeType: capturedImage?.mimeType,
+        brightness: brightness,
+        contrast: contrast,
+        rotation: rotation,
+    });
 
   const startCamera = async () => {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -645,33 +670,75 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
       )}
 
       <Modal isOpen={isEditModalOpen} onClose={handleCloseEditModal} title="Manual Image Editor">
-        {editImageSrc ? (
-          <div className="flex flex-col items-center w-full">
-            <div className="relative w-full max-w-lg mb-4 bg-gray-200 dark:bg-gray-800 rounded-md overflow-hidden">
-                <img 
-                    src={editImageSrc} 
-                    alt="Edit preview" 
-                    className="w-full h-auto"
-                    style={{
-                        transform: `rotate(${rotation}deg)`,
-                        filter: `brightness(${brightness}%) contrast(${contrast}%)`,
-                        transition: 'transform 0.2s, filter 0.2s',
-                    }}
-                />
-            </div>
-            <div className="w-full space-y-4">
-              <div className="flex items-center gap-2"><label htmlFor="brightness-slider" className="text-sm font-medium whitespace-nowrap w-20">Brightness:</label><input id="brightness-slider" type="range" min="50" max="150" value={brightness} onChange={(e) => setBrightness(parseInt(e.target.value, 10))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" /><span className="text-sm w-10 text-right">{brightness}%</span></div>
-              <div className="flex items-center gap-2"><label htmlFor="contrast-slider" className="text-sm font-medium whitespace-nowrap w-20">Contrast:</label><input id="contrast-slider" type="range" min="50" max="150" value={contrast} onChange={(e) => setContrast(parseInt(e.target.value, 10))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" /><span className="text-sm w-10 text-right">{contrast}%</span></div>
-              <div className="flex items-center gap-2"><label className="text-sm font-medium whitespace-nowrap w-20">Rotate:</label><Button size="sm" variant="secondary" onClick={() => setRotation(r => (r + 270) % 360)}>-90°</Button><Button size="sm" variant="secondary" onClick={() => setRotation(r => (r + 90) % 360)}>+90°</Button></div>
-            </div>
-            <div className="flex justify-end space-x-2 mt-6 w-full">
-              <Button variant="secondary" onClick={handleCloseEditModal}>Cancel</Button>
-              <Button variant="primary" onClick={handleApplyEdits}>
-                {isExtractingAfterEdit ? 'Apply & Extract' : 'Apply & Save'}
-              </Button>
-            </div>
-          </div>
-        ) : (<p className="text-center p-4">No image data to edit.</p>)}
+          {editImageSrc ? (
+              <div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6" style={{ height: '40vh' }}>
+                      {/* Original Panel */}
+                      <div className="flex flex-col">
+                          <h4 className="text-center text-sm font-semibold mb-2 text-gray-500">Original</h4>
+                          <div className="flex-grow w-full h-full bg-gray-100 dark:bg-gray-800 rounded-md border border-theme-border flex items-center justify-center overflow-hidden">
+                              <img src={editImageSrc} alt="Original preview" className="max-w-full max-h-full object-contain" />
+                          </div>
+                      </div>
+                      {/* Preview Panel */}
+                      <div className="flex flex-col">
+                          <h4 className="text-center text-sm font-semibold mb-2 text-gray-500">Live Preview (Zoom & Pan)</h4>
+                          <div
+                              ref={modalPreviewContainerRef}
+                              className="relative flex-grow w-full h-full bg-gray-100 dark:bg-gray-800 rounded-md border border-theme-border flex items-center justify-center overflow-hidden"
+                              onWheel={modalHandleWheel}
+                              onPointerDown={modalHandlePointerDown}
+                              onPointerMove={modalHandlePointerMove}
+                              onPointerUp={modalHandlePointerUp}
+                              onPointerCancel={modalHandlePointerCancel}
+                              style={modalCursor}
+                          >
+                              {modalImageSize ? (
+                                  <img
+                                      src={editImageSrc}
+                                      alt="Editable preview"
+                                      style={{
+                                          position: 'absolute',
+                                          width: modalImageSize.width,
+                                          height: modalImageSize.height,
+                                          ...modalTransform,
+                                          ...modalFilter,
+                                      }}
+                                  />
+                              ) : (
+                                  <p className="text-sm text-gray-500">Loading preview...</p>
+                              )}
+                              {modalImageSize && <ZoomControls onZoomIn={modalZoomIn} onZoomOut={modalZoomOut} onReset={modalResetZoomPan} />}
+                          </div>
+                      </div>
+                  </div>
+                  {/* Controls Panel */}
+                  <div className="w-full space-y-4 border-t border-theme-border pt-4">
+                      <div className="flex items-center gap-2">
+                          <label htmlFor="brightness-slider" className="text-sm font-medium whitespace-nowrap w-20">Brightness:</label>
+                          <input id="brightness-slider" type="range" min="50" max="150" value={brightness} onChange={(e) => setBrightness(parseInt(e.target.value, 10))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" />
+                          <span className="text-sm w-10 text-right">{brightness}%</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                          <label htmlFor="contrast-slider" className="text-sm font-medium whitespace-nowrap w-20">Contrast:</label>
+                          <input id="contrast-slider" type="range" min="50" max="150" value={contrast} onChange={(e) => setContrast(parseInt(e.target.value, 10))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" />
+                          <span className="text-sm w-10 text-right">{contrast}%</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                          <label className="text-sm font-medium whitespace-nowrap w-20">Rotate:</label>
+                          <Button size="sm" variant="secondary" onClick={() => setRotation(r => (r + 270) % 360)}>-90°</Button>
+                          <Button size="sm" variant="secondary" onClick={() => setRotation(r => (r + 90) % 360)}>+90°</Button>
+                      </div>
+                  </div>
+                  {/* Action Buttons */}
+                  <div className="flex justify-end space-x-2 mt-6 w-full">
+                      <Button variant="secondary" onClick={handleCloseEditModal}>Cancel</Button>
+                      <Button variant="primary" onClick={handleApplyEdits}>
+                          {isExtractingAfterEdit ? 'Apply & Extract' : 'Apply & Save'}
+                      </Button>
+                  </div>
+              </div>
+          ) : (<p className="text-center p-4">No image data to edit.</p>)}
       </Modal>
       
       <Modal isOpen={isManualEntryModalOpen} onClose={handleCloseManualEntry} title="Manual Data Entry">

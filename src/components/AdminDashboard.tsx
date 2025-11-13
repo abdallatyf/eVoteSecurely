@@ -25,7 +25,7 @@ interface AdminDashboardProps {
 }
 
 type AdminTab = 'management' | 'validation' | 'manualEntry' | 'settings' | 'structure';
-// Fix: Removed ChartType and ChartDesign definitions to break circular dependency. They are now imported from ../types.
+type SortByType = 'fullName' | 'timestamp' | 'validationStatus' | 'assignedPosition' | 'idNumber' | 'confidenceScore';
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpdateEntry, onClearAllEntries, onAddEntry }) => {
   const { loggedInAdmin } = useAuth();
@@ -42,8 +42,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
 
   // Filtering and sorting states
   const [filterStatus, setFilterStatus] = useState<ValidationStatus | 'ALL'>('ALL');
-  const [sortBy, setSortBy] = useState<'fullName' | 'timestamp' | 'validationStatus'>('timestamp');
+  const [sortBy, setSortBy] = useState<SortByType>('timestamp');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [searchText, setSearchText] = useState('');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
 
   // Create Admin User states
   const [isCreateAdminModalOpen, setIsCreateAdminModalOpen] = useState(false);
@@ -100,41 +103,83 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
   const filteredAndSortedEntries = useMemo(() => {
     let entries = [...allVotingEntries];
 
+    // 1. Status filter
     if (filterStatus !== 'ALL') {
       entries = entries.filter(entry => entry.validationStatus === filterStatus);
     }
 
+    // 2. Search text filter
+    if (searchText.trim()) {
+      const lowercasedSearchText = searchText.trim().toLowerCase();
+      entries = entries.filter(entry =>
+        entry.idCardData.fullName.toLowerCase().includes(lowercasedSearchText) ||
+        entry.idCardData.idNumber.toLowerCase().includes(lowercasedSearchText)
+      );
+    }
+
+    // 3. Date range filter
+    if (filterStartDate) {
+        const startDate = new Date(filterStartDate);
+        startDate.setHours(0, 0, 0, 0); // Start of the day
+        entries = entries.filter(entry => new Date(entry.timestamp) >= startDate);
+    }
+    if (filterEndDate) {
+        const endDate = new Date(filterEndDate);
+        endDate.setHours(23, 59, 59, 999); // End of the day
+        entries = entries.filter(entry => new Date(entry.timestamp) <= endDate);
+    }
+
+    // 4. Sorting
     entries.sort((a, b) => {
-      let valA: string | number;
-      let valB: string | number;
+        let valA: string | number | null | undefined;
+        let valB: string | number | null | undefined;
 
-      switch (sortBy) {
-        case 'fullName':
-          valA = a.idCardData.fullName.toLowerCase();
-          valB = b.idCardData.fullName.toLowerCase();
-          break;
-        case 'timestamp':
-          valA = new Date(a.timestamp).getTime();
-          valB = new Date(b.timestamp).getTime();
-          break;
-        case 'validationStatus':
-          const statusOrder = { [ValidationStatus.PENDING]: 0, [ValidationStatus.REJECTED]: 1, [ValidationStatus.APPROVED]: 2 };
-          valA = statusOrder[a.validationStatus];
-          valB = statusOrder[b.validationStatus];
-          break;
-        default: return 0;
-      }
+        switch (sortBy) {
+            case 'fullName':
+                valA = a.idCardData.fullName.toLowerCase();
+                valB = b.idCardData.fullName.toLowerCase();
+                break;
+            case 'timestamp':
+                valA = new Date(a.timestamp).getTime();
+                valB = new Date(b.timestamp).getTime();
+                break;
+            case 'validationStatus':
+                valA = a.validationStatus;
+                valB = b.validationStatus;
+                break;
+            case 'idNumber':
+                valA = a.idCardData.idNumber.toLowerCase();
+                valB = b.idCardData.idNumber.toLowerCase();
+                break;
+            case 'assignedPosition':
+                valA = a.assignedPosition;
+                valB = b.assignedPosition;
+                break;
+            case 'confidenceScore':
+                valA = a.idCardData.confidenceScore;
+                valB = b.idCardData.confidenceScore;
+                break;
+            default:
+                return 0;
+        }
 
-      if (typeof valA === 'string' && typeof valB === 'string') {
-        return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-      } else if (typeof valA === 'number' && typeof valB === 'number') {
-        return sortOrder === 'asc' ? valA - valB : valB - valA;
-      }
-      return 0;
+        // Generic comparison for null/undefined to be last
+        if (valA == null && valB != null) return 1;
+        if (valA != null && valB == null) return -1;
+        if (valA == null && valB == null) return 0;
+
+        let comparison = 0;
+        if (valA! < valB!) {
+            comparison = -1;
+        } else if (valA! > valB!) {
+            comparison = 1;
+        }
+        
+        return sortOrder === 'asc' ? comparison : -comparison;
     });
 
     return entries;
-  }, [allVotingEntries, filterStatus, sortBy, sortOrder]);
+  }, [allVotingEntries, filterStatus, sortBy, sortOrder, searchText, filterStartDate, filterEndDate]);
 
 
   const handleValidateEntry = useCallback((entryId: string, status: ValidationStatus, reason?: string) => {
@@ -323,6 +368,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
     setActiveTab('management');
   }, []);
 
+  const handleSort = useCallback((column: SortByType) => {
+    if (sortBy === column) {
+        setSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+        setSortBy(column);
+        setSortOrder('desc'); // Default to descending for a new column
+    }
+  }, [sortBy]);
+
+  const clearFilters = useCallback(() => {
+    setSearchText('');
+    setFilterStartDate('');
+    setFilterEndDate('');
+    setFilterStatus('ALL');
+  }, []);
+
   const TabButton: React.FC<{ tabName: AdminTab; label: string; count?: number }> = ({ tabName, label, count }) => (
     <button
       onClick={() => setActiveTab(tabName)}
@@ -343,6 +404,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
       )}
     </button>
   );
+
+  const SortableHeader: React.FC<{ column: SortByType; title: string; className?: string }> = ({ column, title, className = '' }) => {
+    const isCurrentSortColumn = sortBy === column;
+    return (
+        <th 
+            className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-theme-table-header cursor-pointer select-none hover:bg-theme-secondary/10 transition-colors ${className}`}
+            onClick={() => handleSort(column)}
+            aria-sort={isCurrentSortColumn ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}
+        >
+            <div className="flex items-center gap-1">
+                {title}
+                {isCurrentSortColumn && (
+                    <span className="opacity-80">
+                        {sortOrder === 'asc' ? '▲' : '▼'}
+                    </span>
+                )}
+            </div>
+        </th>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-theme-background text-theme-text p-4 sm:p-6 lg:p-8">
@@ -389,31 +470,35 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
           {activeTab === 'management' && (
             <div className="bg-theme-card p-6 rounded-lg shadow-md border border-theme-border">
               <h3 className="text-xl font-semibold mb-4">All Voting Entries</h3>
-              <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
-                <div className="flex-1">
-                  <label htmlFor="filterStatus" className="block text-sm font-medium mb-1">Filter by Status:</label>
-                  <select id="filterStatus" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-theme-primary sm:text-sm bg-theme-card">
-                    <option value="ALL">All</option>
-                    <option value={ValidationStatus.PENDING}>Pending</option>
-                    <option value={ValidationStatus.APPROVED}>Approved</option>
-                    <option value={ValidationStatus.REJECTED}>Rejected</option>
-                  </select>
-                </div>
-                <div className="flex-1">
-                  <label htmlFor="sortBy" className="block text-sm font-medium mb-1">Sort By:</label>
-                  <select id="sortBy" value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-theme-primary sm:text-sm bg-theme-card">
-                    <option value="timestamp">Submission Date</option>
-                    <option value="fullName">Full Name</option>
-                    <option value="validationStatus">Validation Status</option>
-                  </select>
-                </div>
-                <div className="flex-shrink-0 mt-2 sm:mt-0">
-                  <label className="block text-sm font-medium mb-1">Order:</label>
-                  <Button onClick={() => setSortOrder(p => p === 'asc' ? 'desc' : 'asc')} variant="secondary" size="sm" className="w-full sm:w-auto">
-                    {sortOrder === 'asc' ? 'ASC' : 'DESC'}
-                  </Button>
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 p-4 bg-theme-background rounded-lg border border-theme-border">
+                  <div>
+                      <label htmlFor="searchText" className="block text-sm font-medium mb-1">Search Name/ID:</label>
+                      <Input id="searchText" type="search" placeholder="Enter name or ID..." value={searchText} onChange={e => setSearchText(e.target.value)} className="!mb-0" />
+                  </div>
+                  <div>
+                      <label htmlFor="filterStatus" className="block text-sm font-medium mb-1">Filter by Status:</label>
+                      <select id="filterStatus" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)} className="block w-full px-3 py-2 border border-theme-border rounded-md shadow-sm focus:outline-none focus:ring-theme-primary sm:text-sm bg-theme-card">
+                          <option value="ALL">All</option>
+                          <option value={ValidationStatus.PENDING}>Pending</option>
+                          <option value={ValidationStatus.APPROVED}>Approved</option>
+                          <option value={ValidationStatus.REJECTED}>Rejected</option>
+                      </select>
+                  </div>
+                  <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
+                      <div>
+                          <label htmlFor="filterStartDate" className="block text-sm font-medium mb-1">Start Date:</label>
+                          <Input id="filterStartDate" type="date" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} className="!mb-0" />
+                      </div>
+                      <div>
+                          <label htmlFor="filterEndDate" className="block text-sm font-medium mb-1">End Date:</label>
+                          <Input id="filterEndDate" type="date" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} className="!mb-0" />
+                      </div>
+                  </div>
+                   <div className="lg:col-span-4 flex justify-end">
+                        <Button onClick={clearFilters} variant="secondary" size="sm">Clear Filters</Button>
+                   </div>
               </div>
+
               {filteredAndSortedEntries.length === 0 ? (
                 <p className="text-center text-gray-500">No entries match your criteria.</p>
               ) : (
@@ -421,13 +506,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
                   <table className="min-w-full divide-y divide-theme-border">
                     <thead className="bg-theme-table-header">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-theme-table-header">Full Name</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-theme-table-header">Status</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-theme-table-header">Assigned Position</th>
+                        <SortableHeader column="fullName" title="Full Name" />
+                        <SortableHeader column="validationStatus" title="Status" />
+                        <SortableHeader column="assignedPosition" title="Assigned Position" />
                         <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-theme-table-header">Official Record</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-theme-table-header">ID Number</th>
-                        <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-theme-table-header">AI Confidence (%)</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-theme-table-header">Submission Date</th>
+                        <SortableHeader column="idNumber" title="ID Number" />
+                        <SortableHeader column="confidenceScore" title="AI Confidence (%)" className="text-center" />
+                        <SortableHeader column="timestamp" title="Submission Date" />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-theme-border">
