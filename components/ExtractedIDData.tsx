@@ -7,7 +7,6 @@ import Input from './Input';
 import useZoomPan from '../utils/useZoomPan'; // Import useZoomPan
 import ZoomControls from './ZoomControls';
 import LoadingSpinner from './LoadingSpinner';
-import { VOTING_EVENT_NAME } from '../constants';
 
 interface ExtractedIDDataProps {
   entry: VotingEntry;

@@ -48,10 +48,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<AdminTab>(() => {
-    // Default Validators to the validation queue
-    return loggedInAdmin?.role === AdminRole.VALIDATOR ? 'validation' : 'management';
-  });
+  const [activeTab, setActiveTab] = useState<AdminTab>('management');
   const [validatedVoteCount, setValidatedVoteCount] = useState<number>(0);
   const [pendingEntries, setPendingEntries] = useState<VotingEntry[]>([]);
   const [isClearAllModalOpen, setIsClearAllModalOpen] = useState(false);
@@ -508,7 +505,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <span className="opacity-80">
             {sortOrder === 'asc' 
                 ? <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" /></svg> 
-                : <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7 7" /></svg>}
+                : <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>}
         </span>
     );
     
