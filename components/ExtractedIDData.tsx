@@ -268,53 +268,79 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
   const hasLandmarks = idCardData.facialLandmarks && Object.keys(idCardData.facialLandmarks).length > 0;
 
   const handleExportImage = useCallback((format: 'image/png' | 'image/jpeg', includeLandmarks: boolean) => {
-    const offscreenCanvas = document.createElement('canvas');
-    const ctx = offscreenCanvas.getContext('2d');
-    if (!ctx) {
-      alert('Failed to get canvas context for export.');
-      setIsExportModalOpen(false);
-      return;
+    const imageToExport = activeImageSrc;
+    const mimeToExport = activeImageMimeType;
+
+    if (!imageToExport || !mimeToExport) {
+        alert('No image data available to export.');
+        setIsExportModalOpen(false);
+        return;
     }
 
     const img = new Image();
     img.onload = () => {
-      offscreenCanvas.width = img.naturalWidth;
-      offscreenCanvas.height = img.naturalHeight;
-      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            alert('Failed to get canvas context for export.');
+            setIsExportModalOpen(false);
+            return;
+        }
 
-      if (includeLandmarks && hasLandmarks) {
-        renderImageWithLandmarks(
-          offscreenCanvas,
-          idCardData.base64Image!,
-          idCardData.imageMimeType!,
-          idCardData.facialLandmarks
-        );
-      }
-      
-      const timestampString = new Date().toISOString().slice(0, 19).replace(/[^0-9]/g, '');
-      const filename = `id_card_export_${timestampString}.${format === 'image/png' ? 'png' : 'jpeg'}`;
-      
-      const dataURL = offscreenCanvas.toDataURL(format, 0.9);
-      const link = document.createElement('a');
-      link.href = dataURL;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setIsExportModalOpen(false);
+        ctx.drawImage(img, 0, 0);
+
+        if (includeLandmarks && hasLandmarks) {
+            const landmarks = idCardData.facialLandmarks;
+            const radius = 3;
+            const color = '#34d399';
+            ctx.fillStyle = color;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+
+            const drawPoint = (x: number, y: number) => {
+                if (typeof x === 'number' && typeof y === 'number' && !isNaN(x) && !isNaN(y)) {
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+            };
+
+            const parseAndDraw = (obj: any) => {
+                if (obj === null || typeof obj !== 'object') return;
+                if (Array.isArray(obj)) {
+                    obj.forEach(item => parseAndDraw(item));
+                } else if (typeof obj.x === 'number' && typeof obj.y === 'number') {
+                    drawPoint(obj.x, obj.y);
+                } else {
+                    for (const key in obj) {
+                        if (obj.hasOwnProperty(key)) {
+                            parseAndDraw(obj[key]);
+                        }
+                    }
+                }
+            };
+            parseAndDraw(landmarks);
+        }
+
+        const timestampString = new Date().toISOString().slice(0, 19).replace(/[^0-9]/g, '');
+        const filename = `id_card_export_${timestampString}.${format === 'image/png' ? 'png' : 'jpeg'}`;
+        const dataURL = canvas.toDataURL(format, 0.9);
+        const link = document.createElement('a');
+        link.href = dataURL;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setIsExportModalOpen(false);
     };
     img.onerror = () => {
-      alert('Failed to load image for export.');
-      setIsExportModalOpen(false);
+        alert('Failed to load image for export.');
+        setIsExportModalOpen(false);
     };
-    
-    if (idCardData.base64Image && idCardData.imageMimeType) {
-      img.src = `data:${idCardData.imageMimeType};base64,${idCardData.base64Image}`;
-    } else {
-      alert('No image data available to export.');
-      setIsExportModalOpen(false);
-    }
-  }, [idCardData.base64Image, idCardData.imageMimeType, idCardData.facialLandmarks, hasLandmarks, renderImageWithLandmarks]);
+    img.src = `data:${mimeToExport};base64,${imageToExport}`;
+  }, [activeImageSrc, activeImageMimeType, idCardData.facialLandmarks, hasLandmarks]);
 
   const handleOpenEditModal = useCallback(() => {
     const allowEditing = localStorage.getItem('settings-allowContactEditing') === 'true';

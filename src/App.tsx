@@ -10,7 +10,7 @@ import Button from './components/Button';
 import Input from './components/Input';
 import LoadingSpinner from './components/LoadingSpinner'; // Import LoadingSpinner
 import VotingInterfaceUI from './components/VotingInterfaceUI'; // Import the new voting UI
-import { VotingEntry, IDCardData, ValidationStatus, Theme } from './types';
+import { VotingEntry, IDCardData, ValidationStatus, Theme, Candidate } from './types';
 import { ADMIN_USERS, THEMES, themeColorMapping } from './constants'; // Import ADMIN_USERS for login page
 import { votingDB } from './services/dbService'; // Import the IndexedDB service
 
@@ -136,6 +136,7 @@ const AdminLoginPage: React.FC = () => {
 // Main App Component with Contexts
 const App: React.FC = () => {
   const [allVotingEntries, setAllVotingEntries] = useState<VotingEntry[]>([]);
+  const [allCandidates, setAllCandidates] = useState<Candidate[]>([]);
   const [currentExtractedEntry, setCurrentExtractedEntry] = useState<VotingEntry | null>(null);
   const [idDataHistory, setIdDataHistory] = useState<IDCardData[]>([]); // New state for tracking IDCardData edits
   const [isLoadingApp, setIsLoadingApp] = useState<boolean>(true); // New loading state for the app
@@ -152,10 +153,7 @@ const App: React.FC = () => {
         case 'ENTRY_ADDED': {
           const newEntry = payload as VotingEntry;
           setAllVotingEntries((prevEntries) => {
-            // Avoid adding a duplicate if the message came from the same tab that already updated its state
-            if (prevEntries.some((e) => e.id === newEntry.id)) {
-              return prevEntries;
-            }
+            if (prevEntries.some((e) => e.id === newEntry.id)) return prevEntries;
             return [...prevEntries, newEntry];
           });
           break;
@@ -165,7 +163,6 @@ const App: React.FC = () => {
           setAllVotingEntries((prevEntries) =>
             prevEntries.map((entry) => (entry.id === updatedEntry.id ? updatedEntry : entry))
           );
-          // Also update the currently viewed entry if it's the one that was changed
           setCurrentExtractedEntry((prev) => (prev && prev.id === updatedEntry.id ? updatedEntry : prev));
           break;
         }
@@ -174,6 +171,24 @@ const App: React.FC = () => {
           setCurrentExtractedEntry(null);
           setIdDataHistory([]);
           break;
+        }
+        case 'CANDIDATE_ADDED': {
+            const newCandidate = payload as Candidate;
+            setAllCandidates(prev => {
+                if(prev.some(c => c.id === newCandidate.id)) return prev;
+                return [...prev, newCandidate];
+            });
+            break;
+        }
+        case 'CANDIDATE_UPDATED': {
+            const updatedCandidate = payload as Candidate;
+            setAllCandidates(prev => prev.map(c => c.id === updatedCandidate.id ? updatedCandidate : c));
+            break;
+        }
+        case 'CANDIDATE_DELETED': {
+            const candidateId = payload as string;
+            setAllCandidates(prev => prev.filter(c => c.id !== candidateId));
+            break;
         }
         default:
           break;
@@ -191,18 +206,22 @@ const App: React.FC = () => {
 
   // Load entries from IndexedDB on mount
   useEffect(() => {
-    const loadEntries = async () => {
+    const loadData = async () => {
       try {
         await votingDB.openDb(); // Ensure DB is open
-        const entries = await votingDB.getAllEntries();
+        const [entries, candidates] = await Promise.all([
+            votingDB.getAllEntries(),
+            votingDB.getAllCandidates(),
+        ]);
         setAllVotingEntries(entries);
+        setAllCandidates(candidates);
       } catch (error) {
-        console.error('Error loading voting entries from IndexedDB:', error);
+        console.error('Error loading data from IndexedDB:', error);
       } finally {
         setIsLoadingApp(false);
       }
     };
-    loadEntries();
+    loadData();
   }, []); // Run only once on mount
 
   const handleAddEntry = useCallback(async (idCardData: IDCardData): Promise<VotingEntry> => {
@@ -219,31 +238,27 @@ const App: React.FC = () => {
       return newEntry;
     } catch (error) {
       console.error('Error adding entry to IndexedDB:', error);
-      // Optionally handle UI feedback for the user
-      throw error; // Re-throw to let the caller know it failed
+      throw error;
     }
   }, [channel]);
 
   const handleIDDataExtracted = useCallback(async (idCardData: IDCardData) => {
-    // Check if an entry with this ID number already exists.
     const existingEntry = allVotingEntries.find(
         entry => entry.idCardData.idNumber === idCardData.idNumber && idCardData.idNumber.trim() !== ''
     );
 
     if (existingEntry) {
-        // If an entry exists, show it. The UI will then decide what actions are available (e.g., vote if approved).
         setCurrentExtractedEntry(existingEntry);
     } else {
-        // This is a new voter. Create a new pending entry for validation.
         const newEntry = await handleAddEntry(idCardData);
         setCurrentExtractedEntry(newEntry);
     }
-    setIdDataHistory([]); // Reset edit history for the newly loaded entry
+    setIdDataHistory([]);
 }, [allVotingEntries, handleAddEntry]);
 
   const handleClearCurrentEntry = useCallback(() => {
     setCurrentExtractedEntry(null);
-    setIdDataHistory([]); // Clear history when clearing entry
+    setIdDataHistory([]);
   }, []);
 
   const handleUpdateEntry = useCallback(async (updatedEntry: VotingEntry) => {
@@ -258,14 +273,12 @@ const App: React.FC = () => {
     }
   }, [channel]);
 
-  // Handler for updating IDCardData within the currentExtractedEntry
   const handleUpdateCurrentExtractedIDData = useCallback(async (updatedIDCardData: IDCardData) => {
     if (!currentExtractedEntry) {
       throw new Error("Cannot update data: no current entry is selected.");
     }
     
     const entryBeforeUpdate = currentExtractedEntry;
-    
     setIdDataHistory((prevHistory) => [...prevHistory, entryBeforeUpdate.idCardData]);
 
     const updatedEntry: VotingEntry = {
@@ -276,11 +289,10 @@ const App: React.FC = () => {
       validationTimestamp: undefined,
     };
     
-    setCurrentExtractedEntry(updatedEntry); // Optimistically update UI
+    setCurrentExtractedEntry(updatedEntry);
 
     try {
       await votingDB.updateEntry(updatedEntry);
-      
       channel.postMessage({ type: 'ENTRY_UPDATED', payload: updatedEntry });
       setAllVotingEntries((prevEntries) =>
         prevEntries.map((entry) =>
@@ -289,30 +301,27 @@ const App: React.FC = () => {
       );
     } catch (error) {
       console.error('Error updating entry in IndexedDB:', error);
-      // Revert optimistic UI update on failure
       setCurrentExtractedEntry(entryBeforeUpdate);
-      setIdDataHistory((prevHistory) => prevHistory.slice(0, -1)); // Revert history
-      throw error; // Re-throw so the calling component can handle it
+      setIdDataHistory((prevHistory) => prevHistory.slice(0, -1));
+      throw error;
     }
   }, [channel, currentExtractedEntry]);
 
-  // New handler for undoing the last IDCardData edit
   const handleUndoCurrentExtractedIDDataEdit = useCallback(async () => {
     if (!currentExtractedEntry || idDataHistory.length === 0) return;
 
     setIdDataHistory((prevHistory) => {
-      const previousIDCardData = prevHistory[prevHistory.length - 1]; // Get last state
-      const newHistory = prevHistory.slice(0, -1); // Remove last state from history
+      const previousIDCardData = prevHistory[prevHistory.length - 1];
+      const newHistory = prevHistory.slice(0, -1);
 
       const updatedEntry: VotingEntry = {
-        ...currentExtractedEntry, // Use currentExtractedEntry to get the ID and other unchanged fields
+        ...currentExtractedEntry,
         idCardData: previousIDCardData,
-        validationStatus: ValidationStatus.PENDING, // Any change, even undo, needs re-validation
+        validationStatus: ValidationStatus.PENDING,
         validatedBy: undefined,
         validationTimestamp: undefined,
       };
 
-      // Update in IndexedDB and then update local state
       votingDB.updateEntry(updatedEntry)
         .then(() => {
           channel.postMessage({ type: 'ENTRY_UPDATED', payload: updatedEntry });
@@ -326,8 +335,7 @@ const App: React.FC = () => {
           console.error('Error undoing ID data edit in IndexedDB:', error);
         });
 
-      setCurrentExtractedEntry(updatedEntry); // Update the current entry in state
-
+      setCurrentExtractedEntry(updatedEntry);
       return newHistory;
     });
   }, [currentExtractedEntry, idDataHistory, channel]);
@@ -339,11 +347,32 @@ const App: React.FC = () => {
       channel.postMessage({ type: 'ALL_ENTRIES_CLEARED' });
       setAllVotingEntries([]);
       setCurrentExtractedEntry(null);
-      setIdDataHistory([]); // Clear history when all entries are cleared
+      setIdDataHistory([]);
     } catch (error) {
       console.error('Error clearing all voting entries from IndexedDB:', error);
     }
   }, [channel]);
+  
+  // --- Candidate Handlers ---
+  const handleAddCandidate = useCallback(async (candidateData: Omit<Candidate, 'id'>) => {
+    const newCandidate: Candidate = { ...candidateData, id: `cand-${Date.now()}` };
+    await votingDB.addCandidate(newCandidate);
+    channel.postMessage({ type: 'CANDIDATE_ADDED', payload: newCandidate });
+    setAllCandidates(prev => [...prev, newCandidate]);
+  }, [channel]);
+
+  const handleUpdateCandidate = useCallback(async (candidate: Candidate) => {
+    await votingDB.updateCandidate(candidate);
+    channel.postMessage({ type: 'CANDIDATE_UPDATED', payload: candidate });
+    setAllCandidates(prev => prev.map(c => c.id === candidate.id ? candidate : c));
+  }, [channel]);
+
+  const handleDeleteCandidate = useCallback(async (candidateId: string) => {
+    await votingDB.deleteCandidate(candidateId);
+    channel.postMessage({ type: 'CANDIDATE_DELETED', payload: candidateId });
+    setAllCandidates(prev => prev.filter(c => c.id !== candidateId));
+  }, [channel]);
+
 
   // A component to manage the logic for the main voter-facing UI
   const VoterInterface = () => {
@@ -360,13 +389,17 @@ const App: React.FC = () => {
         setIdDataHistory([]);
     }, []);
 
-    const handleConfirmVote = useCallback(async () => {
+    const handleConfirmVote = useCallback(async (candidateId: string, candidateName: string) => {
         if (currentExtractedEntry) {
-            await handleUpdateEntry({ ...currentExtractedEntry, hasVoted: true });
+            await handleUpdateEntry({ 
+                ...currentExtractedEntry, 
+                hasVoted: true,
+                votedForCandidateId: candidateId,
+                votedForCandidateName: candidateName,
+            });
         }
-    }, [currentExtractedEntry]);
+    }, [currentExtractedEntry, handleUpdateEntry]);
 
-    // If an entry is selected (either via scan or test mode), decide which UI to show
     if (currentExtractedEntry) {
         const isEligibleToVote =
             currentExtractedEntry.validationStatus === ValidationStatus.APPROVED &&
@@ -377,6 +410,7 @@ const App: React.FC = () => {
             return (
                 <VotingInterfaceUI
                     entry={currentExtractedEntry}
+                    candidates={allCandidates}
                     onConfirmVote={handleConfirmVote}
                     onClear={handleClearCurrentEntry}
                 />
@@ -395,7 +429,6 @@ const App: React.FC = () => {
         );
     }
 
-    // If in test mode, check for authentication
     if (isTestMode) {
         if (isAdminAuthenticated) {
             return <PossibleVoters voters={possibleVoters} onVoterSelect={handleSelectVoterInTestMode} />;
@@ -403,7 +436,6 @@ const App: React.FC = () => {
         return <TestModeAccessDenied />;
     }
 
-    // Default view: ID Scanner
     return (
         <>
             <h1 className="text-4xl font-extrabold text-center text-theme-primary">
@@ -417,7 +449,6 @@ const App: React.FC = () => {
     );
   };
 
-  // Top Navigation Bar
   const Navbar: React.FC = () => {
     const { isAdminAuthenticated, logout } = useAuth();
     const { theme, setTheme } = useTheme();
@@ -498,9 +529,13 @@ const App: React.FC = () => {
               <ProtectedRoute>
                 <AdminDashboard
                   allVotingEntries={allVotingEntries}
+                  allCandidates={allCandidates}
                   onUpdateEntry={handleUpdateEntry}
                   onClearAllEntries={handleClearAllVotingEntries}
                   onAddEntry={handleAddEntry}
+                  onAddCandidate={handleAddCandidate}
+                  onUpdateCandidate={handleUpdateCandidate}
+                  onDeleteCandidate={handleDeleteCandidate}
                 />
               </ProtectedRoute>
             }

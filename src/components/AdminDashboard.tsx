@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 // Fix: Import ChartType and ChartDesign from types.ts to break circular dependency.
-import { VotingEntry, ValidationStatus, Theme, AdminUser, AdminRole, IDCardData, ChartType, ChartDesign } from '../types';
+import { VotingEntry, ValidationStatus, Theme, AdminUser, AdminRole, IDCardData, ChartType, ChartDesign, Task, TaskStatus, Candidate } from '../types';
 import AdminValidationPanel from './AdminValidationPanel';
 import VotingEventCard from './VotingEventCard';
 import { useAuth } from './AuthProvider';
@@ -16,29 +16,46 @@ import { votingDB } from '../services/dbService'; // Import the IndexedDB servic
 import GovernmentStructure from './GovernmentStructure';
 import ManualEntryForm from './ManualEntryForm';
 import DatabaseUsagePanel from './DatabaseUsagePanel';
+import MyTasksPanel from './MyTasksPanel'; // Import MyTasksPanel
+import TaskBoard from './TaskBoard'; // Import TaskBoard
+import CandidateManagement from './CandidateManagement'; // Import CandidateManagement
 
 interface AdminDashboardProps {
   allVotingEntries: VotingEntry[];
+  allCandidates: Candidate[];
   onUpdateEntry: (updatedEntry: VotingEntry) => void;
-  onClearAllEntries: () => void; // Add prop for clearing all entries
+  onClearAllEntries: () => void;
   onAddEntry: (idCardData: IDCardData) => Promise<VotingEntry>;
+  onAddCandidate: (candidate: Omit<Candidate, 'id'>) => Promise<void>;
+  onUpdateCandidate: (candidate: Candidate) => Promise<void>;
+  onDeleteCandidate: (candidateId: string) => Promise<void>;
 }
 
-type AdminTab = 'management' | 'validation' | 'manualEntry' | 'settings' | 'structure';
+type AdminTab = 'management' | 'validation' | 'manualEntry' | 'settings' | 'structure' | 'tasks' | 'ballot';
 type SortByType = 'fullName' | 'timestamp' | 'validationStatus' | 'assignedPosition' | 'idNumber' | 'confidenceScore';
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpdateEntry, onClearAllEntries, onAddEntry }) => {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ 
+  allVotingEntries, 
+  allCandidates,
+  onUpdateEntry, 
+  onClearAllEntries, 
+  onAddEntry,
+  onAddCandidate,
+  onUpdateCandidate,
+  onDeleteCandidate,
+}) => {
   const { loggedInAdmin } = useAuth();
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<AdminTab>(() => {
-    // Default Validators to the validation queue
-    return loggedInAdmin?.role === AdminRole.VALIDATOR ? 'validation' : 'management';
-  });
+  const [activeTab, setActiveTab] = useState<AdminTab>('management');
   const [validatedVoteCount, setValidatedVoteCount] = useState<number>(0);
   const [pendingEntries, setPendingEntries] = useState<VotingEntry[]>([]);
   const [isClearAllModalOpen, setIsClearAllModalOpen] = useState(false);
+
+  // Task states
+  const [allTasks, setAllTasks] = useState<Task[]>([]);
+  const [allAdmins, setAllAdmins] = useState<AdminUser[]>([]);
 
   // Filtering and sorting states
   const [filterStatus, setFilterStatus] = useState<ValidationStatus | 'ALL'>('ALL');
@@ -60,9 +77,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
   const [createAdminSuccessMessage, setCreateAdminSuccessMessage] = useState<string | null>(null);
   const [isCreatingAdmin, setIsCreatingAdmin] = useState(false);
 
-  // Assign position states
-  const [entryToAssignPosition, setEntryToAssignPosition] = useState<VotingEntry | null>(null);
+  // Assign position & vote states
+  const [entryToAssign, setEntryToAssign] = useState<VotingEntry | null>(null);
   const [selectedPosition, setSelectedPosition] = useState<string>('');
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string>('');
   
   // Settings states
   const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(() => {
@@ -86,6 +104,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
     const pending = allVotingEntries.filter(entry => entry.validationStatus === ValidationStatus.PENDING);
     setPendingEntries(pending);
   }, [allVotingEntries]);
+  
+  // Effect to load tasks and admins
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        await votingDB.openDb();
+        const [tasks, admins] = await Promise.all([
+            votingDB.getAllTasks(),
+            votingDB.getAllAdminUsers()
+        ]);
+        setAllTasks(tasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+        setAllAdmins(admins);
+      } catch (error) {
+        console.error("Failed to load tasks or admins:", error);
+      }
+    };
+    loadData();
+  }, []);
 
   // Effect to persist settings to localStorage
   useEffect(() => {
@@ -278,6 +314,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
         role: newAdminRole,
       };
       await votingDB.addAdminUser(newAdmin);
+      setAllAdmins(prev => [...prev, newAdmin]);
       setCreateAdminSuccessMessage(`Admin user "${newAdmin.username}" with role "${newAdmin.role}" created successfully!`);
       setNewAdminUsername(''); setNewAdminPassword(''); setNewAdminFullName('');
     } catch (error) {
@@ -296,19 +333,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
   }, []);
 
   const handleOpenAssignModal = useCallback((entry: VotingEntry) => {
-    setEntryToAssignPosition(entry);
-    // Note: The actual selected position is now set via useEffect to handle filtering
+    setEntryToAssign(entry);
+    setSelectedPosition(entry.assignedPosition || '');
+    setSelectedCandidateId(entry.votedForCandidateId || '');
   }, []);
 
   const handleCloseAssignModal = useCallback(() => {
-    setEntryToAssignPosition(null); setSelectedPosition('');
+    setEntryToAssign(null);
+    setSelectedPosition('');
+    setSelectedCandidateId('');
   }, []);
   
   const filteredPositions = useMemo(() => {
-    if (!entryToAssignPosition?.idCardData?.address) {
+    if (!entryToAssign?.idCardData?.address) {
         return CONSTITUTIONAL_POSITIONS;
     }
-    const address = entryToAssignPosition.idCardData.address.toLowerCase();
+    const address = entryToAssign.idCardData.address.toLowerCase();
 
     const national = ['President', 'Vice President', 'Senator', 'Representative'];
     const provincial = ['Governor', 'Vice Governor', 'Provincial Board Member'];
@@ -333,28 +373,44 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
     }
     
     return [...new Set(relevantPositions)];
-  }, [entryToAssignPosition]);
+  }, [entryToAssign]);
+
+  const candidatesForSelectedPosition = useMemo(() => {
+    if (!selectedPosition) return [];
+    return allCandidates.filter(c => c.position === selectedPosition);
+  }, [selectedPosition, allCandidates]);
+
 
   useEffect(() => {
-    if (entryToAssignPosition && filteredPositions) {
-        const currentPosition = entryToAssignPosition.assignedPosition;
+    if (entryToAssign && filteredPositions) {
+        const currentPosition = entryToAssign.assignedPosition;
         if (currentPosition && filteredPositions.includes(currentPosition)) {
             setSelectedPosition(currentPosition);
-        } else {
-            setSelectedPosition(''); // Reset if current position isn't in the filtered list or doesn't exist.
+        } else if (!currentPosition) {
+            setSelectedPosition('');
         }
     }
-  }, [entryToAssignPosition, filteredPositions]);
+  }, [entryToAssign, filteredPositions]);
 
-  const handleAssignPositionSubmit = useCallback((e: React.FormEvent) => {
+  const handleAssignSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!entryToAssignPosition || !selectedPosition) {
-      alert("Please select a valid position."); return;
+    if (!entryToAssign || !selectedPosition || !selectedCandidateId) {
+      alert("Please select a position and a candidate."); return;
     }
-    const updatedEntry: VotingEntry = { ...entryToAssignPosition, assignedPosition: selectedPosition, isOfficial: false };
-    onUpdateEntry(updatedEntry);
+    const selectedCandidate = allCandidates.find(c => c.id === selectedCandidateId);
+    if (!selectedCandidate) {
+        alert("Selected candidate not found. This is an unexpected error."); return;
+    }
+    const updatedEntry: VotingEntry = { 
+        ...entryToAssign, 
+        assignedPosition: selectedPosition,
+        hasVoted: true,
+        votedForCandidateId: selectedCandidate.id,
+        votedForCandidateName: selectedCandidate.fullName,
+    };
+    await onUpdateEntry(updatedEntry);
     handleCloseAssignModal();
-  }, [entryToAssignPosition, selectedPosition, onUpdateEntry, handleCloseAssignModal]);
+  }, [entryToAssign, selectedPosition, selectedCandidateId, allCandidates, onUpdateEntry, handleCloseAssignModal]);
 
   const handleToggleOfficialStatus = useCallback((entryId: string) => {
     const entryToUpdate = allVotingEntries.find(entry => entry.id === entryId);
@@ -384,6 +440,44 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
     setFilterStatus('ALL');
   }, []);
 
+  // --- Task Callbacks ---
+  const handleAddTask = useCallback(async (newTaskData: Omit<Task, 'id' | 'createdAt'>) => {
+    const newTask: Task = {
+        ...newTaskData,
+        id: `task-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+    };
+    await votingDB.addTask(newTask);
+    setAllTasks(prev => [newTask, ...prev]);
+  }, []);
+
+  const handleUpdateTaskStatus = useCallback(async (taskId: string, newStatus: TaskStatus) => {
+    const taskToUpdate = allTasks.find(t => t.id === taskId);
+    if (taskToUpdate) {
+        const updatedTask = { ...taskToUpdate, status: newStatus };
+        await votingDB.updateTask(updatedTask);
+        setAllTasks(prev => prev.map(t => t.id === taskId ? updatedTask : t));
+    }
+  }, [allTasks]);
+
+  const handleDeleteTask = useCallback(async (taskId: string) => {
+    if (window.confirm("Are you sure you want to delete this task?")) {
+        await votingDB.deleteTask(taskId);
+        setAllTasks(prev => prev.filter(t => t.id !== taskId));
+    }
+  }, []);
+
+  const myTasks = useMemo(() => 
+    allTasks.filter(task => task.assignedToId === loggedInAdmin?.id)
+            .sort((a, b) => {
+                if(a.status === b.status) return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+                if(a.status === TaskStatus.DONE) return 1;
+                if(b.status === TaskStatus.DONE) return -1;
+                return 0;
+            }),
+    [allTasks, loggedInAdmin]
+  );
+
   const TabButton: React.FC<{ tabName: AdminTab; label: string; count?: number }> = ({ tabName, label, count }) => (
     <button
       onClick={() => setActiveTab(tabName)}
@@ -407,19 +501,32 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
 
   const SortableHeader: React.FC<{ column: SortByType; title: string; className?: string }> = ({ column, title, className = '' }) => {
     const isCurrentSortColumn = sortBy === column;
+    const arrowIcon = (
+        <span className="opacity-80">
+            {sortOrder === 'asc' 
+                ? <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" /></svg> 
+                : <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>}
+        </span>
+    );
+    
+    // Icon for non-active sortable headers, appears on hover
+    const genericSortIcon = (
+         <span className="opacity-0 group-hover:opacity-40 transition-opacity duration-200">
+             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 3a.75.75 0 01.55.24l3.25 3.5a.75.75 0 11-1.1 1.02L10 4.852 7.3 7.76a.75.75 0 01-1.1-1.02l3.25-3.5A.75.75 0 0110 3zm-3.76 9.24a.75.75 0 011.02-1.1l2.44 2.648 2.44-2.648a.75.75 0 111.02 1.1l-3.25 3.5a.75.75 0 01-1.1 0l-3.25-3.5z" clipRule="evenodd" />
+            </svg>
+        </span>
+    );
+
     return (
         <th 
-            className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-theme-table-header cursor-pointer select-none hover:bg-theme-secondary/10 transition-colors ${className}`}
+            className={`group px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-theme-table-header cursor-pointer select-none hover:bg-theme-secondary/10 transition-colors ${className}`}
             onClick={() => handleSort(column)}
             aria-sort={isCurrentSortColumn ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}
         >
             <div className="flex items-center gap-1">
                 {title}
-                {isCurrentSortColumn && (
-                    <span className="opacity-80">
-                        {sortOrder === 'asc' ? '▲' : '▼'}
-                    </span>
-                )}
+                {isCurrentSortColumn ? arrowIcon : genericSortIcon}
             </div>
         </th>
     );
@@ -452,6 +559,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
             <p className="text-lg text-gray-500">Welcome, {loggedInAdmin?.fullName} ({loggedInAdmin?.role})!</p>
         </div>
         
+        <MyTasksPanel tasks={myTasks} onUpdateTaskStatus={handleUpdateTaskStatus} />
+
         <div className="border-b border-theme-border">
           <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
             <TabButton tabName="management" label="Entry Management" />
@@ -459,6 +568,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
             <TabButton tabName="manualEntry" label="Manual Entry" />
             {loggedInAdmin?.role === AdminRole.SUPER_ADMIN && (
               <>
+                <TabButton tabName="ballot" label="Ballot Config" />
+                <TabButton tabName="tasks" label="Tasks" />
                 <TabButton tabName="structure" label="Government Structure" />
                 <TabButton tabName="settings" label="Dashboard & Settings" />
               </>
@@ -508,7 +619,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
                       <tr>
                         <SortableHeader column="fullName" title="Full Name" />
                         <SortableHeader column="validationStatus" title="Status" />
-                        <SortableHeader column="assignedPosition" title="Assigned Position" />
+                        <SortableHeader column="assignedPosition" title="Vote / Position" />
                         <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-theme-table-header">Official Record</th>
                         <SortableHeader column="idNumber" title="ID Number" />
                         <SortableHeader column="confidenceScore" title="AI Confidence (%)" className="text-center" />
@@ -547,12 +658,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm">
                             {entry.validationStatus === ValidationStatus.APPROVED ? (
-                              entry.assignedPosition ? (
-                                <div className="flex items-center space-x-2">
-                                  <span>{entry.assignedPosition}</span>
-                                  <Button onClick={() => handleOpenAssignModal(entry)} variant="secondary" size="sm" className="!py-0.5 !px-2" disabled={entry.isOfficial}>Change</Button>
-                                </div>
-                              ) : <Button onClick={() => handleOpenAssignModal(entry)} variant="primary" size="sm">Assign</Button>
+                                entry.hasVoted && entry.votedForCandidateName ? (
+                                    <div className="flex items-center space-x-2">
+                                        <div>
+                                            <p className="font-medium">{entry.assignedPosition}</p>
+                                            <p className="text-xs text-gray-500">Voted: {entry.votedForCandidateName}</p>
+                                        </div>
+                                        <Button onClick={() => handleOpenAssignModal(entry)} variant="secondary" size="sm" className="!py-0.5 !px-2" disabled={entry.isOfficial}>Change</Button>
+                                    </div>
+                                ) : (
+                                    <Button onClick={() => handleOpenAssignModal(entry)} variant="primary" size="sm">
+                                        Assign & Vote
+                                    </Button>
+                                )
                             ) : <span className="text-gray-400">N/A</span>}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -620,6 +738,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
           )}
           {activeTab === 'manualEntry' && (
             <ManualEntryForm onAddEntry={onAddEntry} onEntryAdded={handleManualEntryAdded} />
+          )}
+          {activeTab === 'ballot' && loggedInAdmin?.role === AdminRole.SUPER_ADMIN && (
+            <CandidateManagement
+              candidates={allCandidates}
+              onAdd={onAddCandidate}
+              onUpdate={onUpdateCandidate}
+              onDelete={onDeleteCandidate}
+            />
+          )}
+          {activeTab === 'tasks' && loggedInAdmin?.role === AdminRole.SUPER_ADMIN && (
+             <TaskBoard 
+                tasks={allTasks}
+                admins={allAdmins}
+                currentAdmin={loggedInAdmin}
+                onAddTask={handleAddTask}
+                onUpdateTaskStatus={handleUpdateTaskStatus}
+                onDeleteTask={handleDeleteTask}
+             />
           )}
           {activeTab === 'structure' && loggedInAdmin?.role === AdminRole.SUPER_ADMIN && (
              <div className="space-y-4">
@@ -737,21 +873,61 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ allVotingEntries, onUpd
             <div className="flex justify-end space-x-2 mt-6"><Button type="button" variant="secondary" onClick={handleCloseCreateAdminModal} disabled={isCreatingAdmin}>Cancel</Button><Button type="submit" variant="primary" disabled={isCreatingAdmin}>{isCreatingAdmin ? <LoadingSpinner /> : 'Create'}</Button></div>
         </form>
       </Modal>
-      <Modal isOpen={!!entryToAssignPosition} onClose={handleCloseAssignModal} title={`Assign Position to ${entryToAssignPosition?.idCardData.fullName}`}>
-        <form onSubmit={handleAssignPositionSubmit} className="space-y-4 p-2">
-            <div className="p-3 bg-gray-100 dark:bg-slate-700 rounded-md">
-                <p className="text-sm font-semibold">Voter's Address:</p>
-                <p className="text-sm text-gray-600 dark:text-gray-300">{entryToAssignPosition?.idCardData.address || 'Not available'}</p>
-            </div>
-            <p className="text-sm text-gray-500">Select a constitutional position for this candidate based on their address.</p>
+      <Modal isOpen={!!entryToAssign} onClose={handleCloseAssignModal} title={`Assign Position & Cast Vote for ${entryToAssign?.idCardData.fullName}`}>
+        <form onSubmit={handleAssignSubmit} className="space-y-6 p-2">
             <div>
-              <label htmlFor="position-select" className="block text-sm font-medium mb-1">Position</label>
-              <select id="position-select" value={selectedPosition} onChange={(e) => setSelectedPosition(e.target.value)} required className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-theme-primary sm:text-sm bg-theme-card">
-                <option value="" disabled>-- Select a Position --</option>
-                {filteredPositions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
-              </select>
+                <label htmlFor="position-select" className="block text-sm font-medium text-theme-text mb-1">Position</label>
+                <select 
+                    id="position-select" 
+                    value={selectedPosition} 
+                    onChange={(e) => {
+                        setSelectedPosition(e.target.value);
+                        setSelectedCandidateId(''); // Reset candidate on position change
+                    }} 
+                    required 
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-theme-primary sm:text-sm bg-theme-card"
+                >
+                    <option value="" disabled>-- Select a Position --</option>
+                    {filteredPositions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
+                </select>
             </div>
-            <div className="flex justify-end space-x-2 mt-6"><Button type="button" variant="secondary" onClick={handleCloseAssignModal}>Cancel</Button><Button type="submit" variant="primary">Save</Button></div>
+
+            {selectedPosition && (
+                <div>
+                    <label className="block text-sm font-medium text-theme-text mb-1">Select Candidate</label>
+                    {candidatesForSelectedPosition.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2 max-h-64 overflow-y-auto p-2 bg-theme-background rounded">
+                            {candidatesForSelectedPosition.map(candidate => (
+                                <button
+                                    type="button"
+                                    key={candidate.id}
+                                    onClick={() => setSelectedCandidateId(candidate.id)}
+                                    className={`p-3 rounded-lg border-2 text-left transition-all duration-200 w-full ${selectedCandidateId === candidate.id ? 'border-theme-primary bg-theme-primary/10 ring-2 ring-theme-primary' : 'border-theme-border bg-theme-card hover:border-theme-secondary'}`}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <img
+                                            src={candidate.profilePictureBase64 ? `data:image/jpeg;base64,${candidate.profilePictureBase64}` : `https://ui-avatars.com/api/?name=${encodeURIComponent(candidate.fullName)}&background=random`}
+                                            alt={candidate.fullName}
+                                            className="w-12 h-12 rounded-full object-cover border-2 border-theme-border"
+                                        />
+                                        <div>
+                                            <p className="font-semibold">{candidate.fullName}</p>
+                                            <p className="text-sm text-gray-500">{candidate.party || 'Independent'}</p>
+                                        </div>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-sm text-gray-500 mt-2 p-4 text-center bg-theme-background rounded">No candidates have been configured for this position.</p>
+                    )}
+                </div>
+            )}
+
+            <div className="flex justify-end space-x-2 mt-6 pt-4 border-t border-theme-border">
+                <Button type="button" variant="secondary" onClick={handleCloseAssignModal}>Cancel</Button>
+                <Button type="submit" variant="primary" disabled={!selectedCandidateId}>Assign and Cast Vote</Button>
+            </div>
         </form>
       </Modal>
     </div>

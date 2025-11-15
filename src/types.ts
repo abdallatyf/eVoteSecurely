@@ -73,6 +73,16 @@ export interface VotingEntry {
   assignedPosition?: string; // The constitutional position for the candidate
   isOfficial?: boolean; // New field to mark as an official, saved record
   hasVoted?: boolean; // Add this field to track vote status
+  votedForCandidateId?: string; // ID of the candidate the user voted for
+  votedForCandidateName?: string; // Denormalized name for easier display/auditing
+}
+
+export interface Candidate {
+  id: string;
+  fullName: string;
+  position: string;
+  party?: string;
+  profilePictureBase64?: string;
 }
 
 export type GovernmentStructureData = Record<string, Record<string, string[]>>;
@@ -98,6 +108,25 @@ export interface ThemeContextType {
 
 export interface ProtectedRouteProps {
   children: ReactNode;
+}
+
+export enum TaskStatus {
+  TODO = 'To Do',
+  IN_PROGRESS = 'In Progress',
+  DONE = 'Done',
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  assignedToId: string;
+  assignedToName: string; // Denormalized for easy display
+  assignedById: string;
+  assignedByName: string; // Denormalized for easy display
+  createdAt: string; // ISO string
+  dueDate?: string; // ISO string for date
 }
 
 // Fix: Moved chart types here to break circular dependency between AdminDashboard and GovernmentStructure.
