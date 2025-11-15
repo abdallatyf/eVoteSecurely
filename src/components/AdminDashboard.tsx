@@ -581,33 +581,36 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {activeTab === 'management' && (
             <div className="bg-theme-card p-6 rounded-lg shadow-md border border-theme-border">
               <h3 className="text-xl font-semibold mb-4">All Voting Entries</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 p-4 bg-theme-background rounded-lg border border-theme-border">
+              <div className="mb-6 p-4 bg-theme-background rounded-lg border border-theme-border">
+                <h4 className="font-semibold mb-4">Filter & Search</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div>
-                      <label htmlFor="searchText" className="block text-sm font-medium mb-1">Search Name/ID:</label>
-                      <Input id="searchText" type="search" placeholder="Enter name or ID..." value={searchText} onChange={e => setSearchText(e.target.value)} className="!mb-0" />
+                    <label htmlFor="searchText" className="block text-sm font-medium mb-1">Search Name/ID:</label>
+                    <Input id="searchText" type="search" placeholder="Enter name or ID..." value={searchText} onChange={e => setSearchText(e.target.value)} onClear={() => setSearchText('')} className="!mb-0" />
                   </div>
                   <div>
-                      <label htmlFor="filterStatus" className="block text-sm font-medium mb-1">Filter by Status:</label>
-                      <select id="filterStatus" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)} className="block w-full px-3 py-2 border border-theme-border rounded-md shadow-sm focus:outline-none focus:ring-theme-primary sm:text-sm bg-theme-card">
-                          <option value="ALL">All</option>
-                          <option value={ValidationStatus.PENDING}>Pending</option>
-                          <option value={ValidationStatus.APPROVED}>Approved</option>
-                          <option value={ValidationStatus.REJECTED}>Rejected</option>
-                      </select>
+                    <label htmlFor="filterStatus" className="block text-sm font-medium mb-1">Filter by Status:</label>
+                    <select id="filterStatus" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)} className="block w-full px-3 py-2 border border-theme-border rounded-md shadow-sm focus:outline-none focus:ring-theme-primary sm:text-sm bg-theme-card">
+                      <option value="ALL">All</option>
+                      <option value={ValidationStatus.PENDING}>Pending</option>
+                      <option value={ValidationStatus.APPROVED}>Approved</option>
+                      <option value={ValidationStatus.REJECTED}>Rejected</option>
+                    </select>
                   </div>
-                  <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
-                      <div>
-                          <label htmlFor="filterStartDate" className="block text-sm font-medium mb-1">Start Date:</label>
-                          <Input id="filterStartDate" type="date" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} className="!mb-0" />
-                      </div>
-                      <div>
-                          <label htmlFor="filterEndDate" className="block text-sm font-medium mb-1">End Date:</label>
-                          <Input id="filterEndDate" type="date" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} className="!mb-0" />
-                      </div>
+                  <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="filterStartDate" className="block text-sm font-medium mb-1">Start Date:</label>
+                      <Input id="filterStartDate" type="date" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} onClear={() => setFilterStartDate('')} className="!mb-0" />
+                    </div>
+                    <div>
+                      <label htmlFor="filterEndDate" className="block text-sm font-medium mb-1">End Date:</label>
+                      <Input id="filterEndDate" type="date" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} onClear={() => setFilterEndDate('')} className="!mb-0" />
+                    </div>
                   </div>
-                   <div className="lg:col-span-4 flex justify-end">
-                        <Button onClick={clearFilters} variant="secondary" size="sm">Clear Filters</Button>
-                   </div>
+                  <div className="lg:col-span-4 flex justify-end">
+                    <Button onClick={clearFilters} variant="secondary" size="sm">Clear All Filters</Button>
+                  </div>
+                </div>
               </div>
 
               {filteredAndSortedEntries.length === 0 ? (

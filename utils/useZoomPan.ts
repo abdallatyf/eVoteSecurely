@@ -28,6 +28,7 @@ interface UseZoomPanReturn {
   handlePointerMove: (e: React.PointerEvent<HTMLElement>) => void;
   handlePointerUp: (e: React.PointerEvent<HTMLElement>) => void;
   handlePointerCancel: (e: React.PointerEvent<HTMLElement>) => void;
+  handleDoubleClick: (e: React.MouseEvent<HTMLElement>) => void; // New
   resetZoomPan: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
@@ -358,6 +359,26 @@ const useZoomPan = ({
 
   const handlePointerCancel = handlePointerUp;
 
+  const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!imageNaturalSize || !containerSize) return;
+
+    const { x: mouseX, y: mouseY } = getRelativeCoordinates(e.clientX, e.clientY);
+    const minFitZoom = getMinFitZoom(imageNaturalSize.width, imageNaturalSize.height, containerSize.width, containerSize.height, rotation);
+    
+    // If we are zoomed in more than the minimum fit + a small tolerance, reset the zoom.
+    if (zoomLevel > minFitZoom + 0.01) {
+        const { clampedPanX, clampedPanY } = clampPan(0, 0, minFitZoom);
+        setZoomLevel(minFitZoom);
+        setPanX(clampedPanX);
+        setPanY(clampedPanY);
+    } else {
+        // Otherwise, zoom in towards the mouse point.
+        applyZoom(3, mouseX, mouseY); // zoom in more aggressively on double click
+    }
+  }, [getRelativeCoordinates, zoomLevel, imageNaturalSize, containerSize, getMinFitZoom, applyZoom, clampPan, rotation]);
+
   const focusOnRect = useCallback((rect: { x: number, y: number, width: number, height: number }, padding: number = 0.8) => {
     if (!imageNaturalSize || !containerSize || rect.width <= 0 || rect.height <= 0) return;
 
@@ -417,6 +438,7 @@ const useZoomPan = ({
     handlePointerMove,
     handlePointerUp,
     handlePointerCancel,
+    handleDoubleClick,
     resetZoomPan,
     zoomIn,
     zoomOut,

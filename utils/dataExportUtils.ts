@@ -114,3 +114,27 @@ export function escapeCSV(value: string | number | boolean | null | undefined): 
   }
   return stringValue;
 }
+
+/**
+ * Generates a QR code data URL from a text string.
+ * @param text The string to encode into the QR code.
+ * @returns A promise that resolves to the data URL of the generated QR code image.
+ */
+export const generateQRCodeDataURL = async (text: string): Promise<string> => {
+  if (!window.QRCode) {
+    throw new Error('QRCode library is not loaded.');
+  }
+  try {
+    // Returns a full data URL: "data:image/png;base64,..."
+    const dataUrl = await window.QRCode.toDataURL(text, {
+      errorCorrectionLevel: 'H',
+      type: 'image/png',
+      quality: 0.9,
+      margin: 1,
+    });
+    return dataUrl;
+  } catch (err) {
+    console.error('Failed to generate QR code:', err);
+    throw err;
+  }
+};

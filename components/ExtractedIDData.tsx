@@ -24,6 +24,7 @@ const contactRegex = /^\+639\d{9}$/;
 const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpdateIDData, onUndoIDDataEdit, canUndo, onUpdateEntry }) => {
   const { idCardData, timestamp, validationStatus } = entry;
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [showAllDetails, setShowAllDetails] = useState(false);
   const [showLandmarks, setShowLandmarks] = useState(false);
   const [showBwImage, setShowBwImage] = useState(false);
@@ -85,6 +86,7 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
     handlePointerDown: mainViewHandlePointerDown,
     handlePointerMove: mainViewHandlePointerMove,
     handlePointerUp: mainViewHandlePointerUp,
+    handleDoubleClick: mainViewHandleDoubleClick,
     isDragging: mainViewIsDragging,
     imageNaturalSize: mainViewImageNaturalSize,
     zoomIn: mainViewZoomIn,
@@ -109,6 +111,7 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
     handlePointerMove: modalViewHandlePointerMove,
     handlePointerUp: modalViewHandlePointerUp,
     handlePointerCancel: modalViewHandlePointerCancel,
+    handleDoubleClick: modalViewHandleDoubleClick,
     resetZoomPan: modalViewResetZoomPan,
     zoomIn: modalViewZoomIn,
     zoomOut: modalViewZoomOut,
@@ -563,6 +566,7 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
                         onPointerMove={customMainHandlePointerMove}
                         onPointerUp={customMainHandlePointerUp}
                         onPointerCancel={mainViewHandlePointerUp}
+                        onDoubleClick={mainViewHandleDoubleClick}
                         className="relative w-full max-w-sm h-auto aspect-[1.586] bg-gray-200 dark:bg-gray-800 flex justify-center items-center overflow-hidden rounded-md border border-theme-border shadow-sm"
                         style={mainViewCursorStyle}
                         aria-label="Scanned ID card image. Scroll to zoom, drag to pan, click to open larger view."
@@ -633,6 +637,9 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
         <Button onClick={onClear} variant="secondary">Clear Entry</Button>
         <Button onClick={handleCopyData} variant="secondary">Copy ID Data</Button>
         <Button onClick={handleOpenEditModal} variant="secondary">Edit Data</Button>
+        {idCardData.voterQRCodeBase64 && (
+          <Button onClick={() => setIsQrModalOpen(true)} variant="secondary">Show Voter QR Code</Button>
+        )}
         <Button onClick={onUndoIDDataEdit} variant="secondary" disabled={!canUndo}>Undo Last Edit</Button>
         {idCardData.base64Image && (<Button onClick={() => { setIsExportModalOpen(true); setExportWithLandmarks(showLandmarks); }} variant="secondary">Export Image</Button>)}
       </div>
@@ -648,7 +655,7 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
               )}
               <Button onClick={modalViewResetImageAdjustments} variant="secondary" size="sm" className="whitespace-nowrap flex-shrink-0">Reset</Button>
             </div>
-            <div ref={modalViewContainerRef} onWheel={modalViewHandleWheel} onPointerDown={modalViewHandlePointerDown} onPointerMove={modalViewHandlePointerMove} onPointerUp={modalViewHandlePointerUp} onPointerCancel={modalViewHandlePointerCancel} className="relative w-full h-full bg-gray-200 dark:bg-gray-800 flex justify-center items-center overflow-hidden rounded-md" style={modalViewCursorStyle}>
+            <div ref={modalViewContainerRef} onWheel={modalViewHandleWheel} onPointerDown={modalViewHandlePointerDown} onPointerMove={modalViewHandlePointerMove} onPointerUp={modalViewHandlePointerUp} onPointerCancel={modalViewHandlePointerCancel} onDoubleClick={modalViewHandleDoubleClick} className="relative w-full h-full bg-gray-200 dark:bg-gray-800 flex justify-center items-center overflow-hidden rounded-md" style={modalViewCursorStyle}>
               {modalViewImageNaturalSize ? (<canvas ref={modalCanvasRef} style={{ ...modalViewTransformStyle, ...modalViewFilterStyle, display: 'block', position: 'absolute', width: modalViewImageNaturalSize.width, height: modalViewImageNaturalSize.height }}></canvas>) : (<p className="text-center p-4">Loading image for display...</p>)}
               {modalViewImageNaturalSize && (
                   <ZoomControls onZoomIn={modalViewZoomIn} onZoomOut={modalViewZoomOut} onReset={modalViewResetZoomPan} />
@@ -696,6 +703,21 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
             </Button>
           </div>
         </form>
+      </Modal>
+      <Modal isOpen={isQrModalOpen} onClose={() => setIsQrModalOpen(false)} title="Voter QR Code">
+        {idCardData.voterQRCodeBase64 && (
+          <div className="text-center p-4">
+              <p className="mb-4">This QR code can be used for quick check-in or verification.</p>
+              <img 
+                  src={`data:image/png;base64,${idCardData.voterQRCodeBase64}`} 
+                  alt="Voter QR Code" 
+                  className="mx-auto w-64 h-64 border-4 border-theme-border rounded-lg" 
+              />
+              <p className="text-xs text-gray-500 mt-4 break-all">
+                  Encoded data: {JSON.stringify({ entryId: entry.id, idNumber: idCardData.idNumber, fullName: idCardData.fullName })}
+              </p>
+          </div>
+        )}
       </Modal>
     </div>
   );

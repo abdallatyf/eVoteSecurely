@@ -7,6 +7,8 @@ import { applyTransformationsToImage, applyImageAdjustments } from '../utils/ima
 import Button from './Button';
 import LoadingSpinner from './LoadingSpinner';
 import Modal from './Modal';
+import useZoomPan from '../utils/useZoomPan';
+import ZoomControls from './ZoomControls';
 
 interface IDScannerProps {
   onIDDataExtracted: (idCardData: IDCardData) => void;
@@ -23,6 +25,7 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
   const [isAnalysisRunning, setIsAnalysisRunning] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [qrCodeData, setQrCodeData] = useState<string | null>(null);
+  const [qrCodeLocation, setQrCodeLocation] = useState<any | null>(null);
 
   // Manual Edit State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -51,6 +54,8 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const stopCamera = () => {
     if (videoRef.current && videoRef.current.srcObject) {
@@ -129,10 +134,12 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
     };
 }, [isAnalysisRunning]);
 
+
   const analyzeImage = useCallback(async (imageDataUrl: string, currentSharpness: number) => {
     if (!canvasRef.current) return;
     setIsAnalysisRunning(true);
     setQrCodeData(null);
+    setQrCodeLocation(null);
     setImageQualityReport(null);
 
     const canvas = canvasRef.current;
@@ -157,13 +164,74 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
         ]);
         
         setImageQualityReport(qualityReport);
-        if (qrCodeResult) setQrCodeData(qrCodeResult.data);
+        if (qrCodeResult) {
+            setQrCodeData(qrCodeResult.data);
+            setQrCodeLocation(qrCodeResult.location);
+        } else {
+            setQrCodeData(null);
+            setQrCodeLocation(null);
+        }
         
         setAnalysisProgress(100);
         setTimeout(() => setIsAnalysisRunning(false), 500);
     };
     img.src = imageDataUrl;
   }, []);
+
+  const {
+    transformStyle,
+    cursorStyle,
+    handleWheel,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    zoomIn,
+    zoomOut,
+    resetZoomPan,
+    imageNaturalSize,
+  } = useZoomPan({
+    containerRef: previewContainerRef,
+    imageSrc: capturedImage ? capturedImage.data : undefined,
+    imageMimeType: capturedImage ? capturedImage.mimeType : undefined,
+    brightness: 100, // No adjustments on this view
+    contrast: 100,  // No adjustments on this view
+  });
+
+  useEffect(() => {
+    const canvas = previewCanvasRef.current;
+    if (!canvas || !capturedImage || !imageNaturalSize) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const img = new Image();
+    img.onload = () => {
+      // Set canvas size to match the natural image size
+      canvas.width = imageNaturalSize.width;
+      canvas.height = imageNaturalSize.height;
+
+      // Draw the captured image
+      ctx.drawImage(img, 0, 0, imageNaturalSize.width, imageNaturalSize.height);
+
+      // If a QR code was found, draw its location
+      if (qrCodeLocation) {
+        ctx.strokeStyle = '#10b981'; // emerald-500
+        ctx.lineWidth = Math.max(3, imageNaturalSize.width / 200); // Scale line width with image size
+        ctx.lineJoin = 'round';
+
+        const { topLeft, topRight, bottomRight, bottomLeft } = qrCodeLocation;
+        ctx.beginPath();
+        ctx.moveTo(topLeft.x, topLeft.y);
+        ctx.lineTo(topRight.x, topRight.y);
+        ctx.lineTo(bottomRight.x, bottomRight.y);
+        ctx.lineTo(bottomLeft.x, bottomLeft.y);
+        ctx.closePath();
+        ctx.stroke();
+      }
+    };
+    img.src = `data:${capturedImage.mimeType};base64,${capturedImage.data}`;
+
+  }, [capturedImage, qrCodeLocation, imageNaturalSize]);
   
   const generatePreprocessedPreview = useCallback(async (imageDataUrl: string, C: number, clip: number, grid: number) => {
     if (!canvasRef.current) return;
@@ -261,6 +329,7 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
     setCapturedImage(null);
     setImageQualityReport(null);
     setQrCodeData(null);
+    setQrCodeLocation(null);
     setError(null);
     setIsEditModalOpen(false);
     setIsExtractingAfterEdit(false);
@@ -492,8 +561,33 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
             {capturedImage && (
                 <div className="space-y-6">
                     <div>
-                        <p className="text-sm text-center text-gray-500 mb-2">Captured Image Preview</p>
-                        <img src={`data:${capturedImage.mimeType};base64,${capturedImage.data}`} alt="Captured ID" className="max-w-full mx-auto rounded-md shadow-lg border border-theme-border max-h-72" />
+                        <p className="text-sm text-center text-gray-500 mb-2">Captured Image Preview (Scroll to zoom, drag to pan)</p>
+                         <div
+                            ref={previewContainerRef}
+                            className="relative w-full max-w-full mx-auto aspect-video bg-gray-200 dark:bg-gray-800 flex justify-center items-center overflow-hidden rounded-md border border-theme-border shadow-sm"
+                            style={cursorStyle}
+                            onWheel={handleWheel}
+                            onPointerDown={handlePointerDown}
+                            onPointerMove={handlePointerMove}
+                            onPointerUp={handlePointerUp}
+                            onPointerCancel={handlePointerUp}
+                          >
+                            {imageNaturalSize ? (
+                              <canvas
+                                ref={previewCanvasRef}
+                                style={{
+                                  ...transformStyle,
+                                  display: 'block',
+                                  position: 'absolute',
+                                  width: imageNaturalSize.width,
+                                  height: imageNaturalSize.height,
+                                }}
+                              />
+                            ) : (
+                              <p className="text-center p-4 text-sm text-gray-500">Loading image...</p>
+                            )}
+                            {imageNaturalSize && <ZoomControls onZoomIn={zoomIn} onZoomOut={zoomOut} onReset={resetZoomPan} />}
+                        </div>
                     </div>
                     {isAnalysisRunning && (
                         <div className="text-center p-4">
