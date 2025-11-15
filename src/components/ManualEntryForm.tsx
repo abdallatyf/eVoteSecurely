@@ -1,5 +1,3 @@
-
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { IDCardData, VotingEntry } from '../types';
 import Button from './Button';
@@ -187,7 +185,6 @@ const ManualEntryForm: React.FC<ManualEntryFormProps> = ({ onAddEntry, onEntryAd
     }
   };
 
-  // Fix: Added the missing return statement to ensure the component renders JSX.
   return (
     <div className="bg-theme-card p-6 rounded-lg shadow-md border border-theme-border">
         <h3 className="text-xl font-semibold mb-2">Manual Entry Creation</h3>

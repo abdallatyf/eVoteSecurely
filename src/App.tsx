@@ -13,6 +13,7 @@ import VotingInterfaceUI from './components/VotingInterfaceUI'; // Import the ne
 import { VotingEntry, IDCardData, ValidationStatus, Theme, Candidate } from './types';
 import { ADMIN_USERS, THEMES, themeColorMapping } from './constants'; // Import ADMIN_USERS for login page
 import { votingDB } from './services/dbService'; // Import the IndexedDB service
+import { generateQRCodeDataURL } from '../utils/dataExportUtils';
 
 // A new component to display approved voters in test mode.
 const PossibleVoters: React.FC<{
@@ -225,9 +226,22 @@ const App: React.FC = () => {
   }, []); // Run only once on mount
 
   const handleAddEntry = useCallback(async (idCardData: IDCardData): Promise<VotingEntry> => {
+    const newEntryId = `entry-${Date.now()}`;
+    
+    const qrCodeText = JSON.stringify({
+        entryId: newEntryId,
+        idNumber: idCardData.idNumber,
+        fullName: idCardData.fullName,
+    });
+    const qrCodeDataURL = await generateQRCodeDataURL(qrCodeText);
+    const qrCodeBase64 = qrCodeDataURL.split(',')[1];
+
     const newEntry: VotingEntry = {
-      id: `entry-${Date.now()}`,
-      idCardData: idCardData,
+      id: newEntryId,
+      idCardData: {
+          ...idCardData,
+          voterQRCodeBase64: qrCodeBase64,
+      },
       timestamp: new Date().toISOString(),
       validationStatus: ValidationStatus.PENDING,
     };

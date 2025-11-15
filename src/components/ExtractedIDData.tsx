@@ -2,12 +2,11 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { VotingEntry, ValidationStatus, IDCardData } from '../types';
 import Button from './Button';
 import Modal from './Modal'; // Import the Modal component
-import { calculateFacialSymmetry, FacialSymmetryResult } from '../utils/dataExportUtils'; // Import from utility
+import { calculateFacialSymmetry, FacialSymmetryResult } from '../../utils/dataExportUtils'; // Import from utility
 import Input from './Input';
-import useZoomPan from '../utils/useZoomPan'; // Import useZoomPan
+import useZoomPan from '../../utils/useZoomPan'; // Import useZoomPan
 import ZoomControls from './ZoomControls';
 import LoadingSpinner from './LoadingSpinner';
-import { VOTING_EVENT_NAME } from '../constants';
 
 interface ExtractedIDDataProps {
   entry: VotingEntry;
@@ -18,9 +17,14 @@ interface ExtractedIDDataProps {
   onUpdateEntry: (updatedEntry: VotingEntry) => Promise<void>;
 }
 
+const dobRegex = /^\d{2}[-\/.]\d{2}[-\/.]\d{4}$|^\d{4}[-\/.]\d{2}[-\/.]\d{2}$/;
+const idNumberRegex = /^[a-zA-Z0-9-]{8,20}$/;
+const contactRegex = /^\+639\d{9}$/;
+
 const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpdateIDData, onUndoIDDataEdit, canUndo, onUpdateEntry }) => {
   const { idCardData, timestamp, validationStatus } = entry;
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [showAllDetails, setShowAllDetails] = useState(false);
   const [showLandmarks, setShowLandmarks] = useState(false);
   const [showBwImage, setShowBwImage] = useState(false);
@@ -62,10 +66,6 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
   const [modalContrast, setModalContrast] = useState(100);
   const [modalLandmarkOpacity, setModalLandmarkOpacity] = useState(70);
 
-  // Vote Modal States
-  const [isVoteModalOpen, setIsVoteModalOpen] = useState(false);
-  const [isVoting, setIsVoting] = useState(false);
-
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modalCanvasRef = useRef<HTMLCanvasElement>(null);
   const wasDraggingRef = useRef(false);
@@ -86,6 +86,7 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
     handlePointerDown: mainViewHandlePointerDown,
     handlePointerMove: mainViewHandlePointerMove,
     handlePointerUp: mainViewHandlePointerUp,
+    handleDoubleClick: mainViewHandleDoubleClick,
     isDragging: mainViewIsDragging,
     imageNaturalSize: mainViewImageNaturalSize,
     zoomIn: mainViewZoomIn,
@@ -110,6 +111,7 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
     handlePointerMove: modalViewHandlePointerMove,
     handlePointerUp: modalViewHandlePointerUp,
     handlePointerCancel: modalViewHandlePointerCancel,
+    handleDoubleClick: modalViewHandleDoubleClick,
     resetZoomPan: modalViewResetZoomPan,
     zoomIn: modalViewZoomIn,
     zoomOut: modalViewZoomOut,
@@ -269,56 +271,81 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
   const hasLandmarks = idCardData.facialLandmarks && Object.keys(idCardData.facialLandmarks).length > 0;
 
   const handleExportImage = useCallback((format: 'image/png' | 'image/jpeg', includeLandmarks: boolean) => {
-    const offscreenCanvas = document.createElement('canvas');
-    const ctx = offscreenCanvas.getContext('2d');
-    if (!ctx) {
-      alert('Failed to get canvas context for export.');
-      setIsExportModalOpen(false);
-      return;
+    const imageToExport = activeImageSrc;
+    const mimeToExport = activeImageMimeType;
+
+    if (!imageToExport || !mimeToExport) {
+        alert('No image data available to export.');
+        setIsExportModalOpen(false);
+        return;
     }
 
     const img = new Image();
     img.onload = () => {
-      offscreenCanvas.width = img.naturalWidth;
-      offscreenCanvas.height = img.naturalHeight;
-      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            alert('Failed to get canvas context for export.');
+            setIsExportModalOpen(false);
+            return;
+        }
 
-      if (includeLandmarks && hasLandmarks) {
-        renderImageWithLandmarks(
-          offscreenCanvas,
-          idCardData.base64Image!,
-          idCardData.imageMimeType!,
-          idCardData.facialLandmarks
-        );
-      }
-      
-      const timestampString = new Date().toISOString().slice(0, 19).replace(/[^0-9]/g, '');
-      const filename = `id_card_export_${timestampString}.${format === 'image/png' ? 'png' : 'jpeg'}`;
-      
-      const dataURL = offscreenCanvas.toDataURL(format, 0.9);
-      const link = document.createElement('a');
-      link.href = dataURL;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setIsExportModalOpen(false);
+        ctx.drawImage(img, 0, 0);
+
+        if (includeLandmarks && hasLandmarks) {
+            const landmarks = idCardData.facialLandmarks;
+            const radius = 3;
+            const color = '#34d399';
+            ctx.fillStyle = color;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+
+            const drawPoint = (x: number, y: number) => {
+                if (typeof x === 'number' && typeof y === 'number' && !isNaN(x) && !isNaN(y)) {
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+            };
+
+            const parseAndDraw = (obj: any) => {
+                if (obj === null || typeof obj !== 'object') return;
+                if (Array.isArray(obj)) {
+                    obj.forEach(item => parseAndDraw(item));
+                } else if (typeof obj.x === 'number' && typeof obj.y === 'number') {
+                    drawPoint(obj.x, obj.y);
+                } else {
+                    for (const key in obj) {
+                        if (obj.hasOwnProperty(key)) {
+                            parseAndDraw(obj[key]);
+                        }
+                    }
+                }
+            };
+            parseAndDraw(landmarks);
+        }
+
+        const timestampString = new Date().toISOString().slice(0, 19).replace(/[^0-9]/g, '');
+        const filename = `id_card_export_${timestampString}.${format === 'image/png' ? 'png' : 'jpeg'}`;
+        const dataURL = canvas.toDataURL(format, 0.9);
+        const link = document.createElement('a');
+        link.href = dataURL;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setIsExportModalOpen(false);
     };
     img.onerror = () => {
-      alert('Failed to load image for export.');
-      setIsExportModalOpen(false);
+        alert('Failed to load image for export.');
+        setIsExportModalOpen(false);
     };
-    
-    if (idCardData.base64Image && idCardData.imageMimeType) {
-      img.src = `data:${idCardData.imageMimeType};base64,${idCardData.base64Image}`;
-    } else {
-      alert('No image data available to export.');
-      setIsExportModalOpen(false);
-    }
-  }, [idCardData.base64Image, idCardData.imageMimeType, idCardData.facialLandmarks, hasLandmarks, renderImageWithLandmarks]);
+    img.src = `data:${mimeToExport};base64,${imageToExport}`;
+  }, [activeImageSrc, activeImageMimeType, idCardData.facialLandmarks, hasLandmarks]);
 
   const handleOpenEditModal = useCallback(() => {
-    // Read the persisted setting from localStorage
     const allowEditing = localStorage.getItem('settings-allowContactEditing') === 'true';
     setIsContactEditingAllowed(allowEditing);
 
@@ -348,6 +375,41 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
       setSavingProgress(0);
   }, []);
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    
+    const stateSetterMap: { [key: string]: React.Dispatch<React.SetStateAction<string>> } = {
+        fullName: setEditFullName,
+        dob: setEditDob,
+        idNumber: setEditIdNumber,
+        country: setEditCountry,
+        contactNumber: setEditContactNumber,
+        issueDate: setEditIssueDate,
+        expiryDate: setEditExpiryDate,
+        address: setEditAddress,
+        gender: setEditGender,
+        facialDescription: setEditFacialDescription,
+        otherText: setEditOtherText,
+    };
+
+    if (stateSetterMap[name]) {
+        stateSetterMap[name](value);
+    }
+
+    if (name === 'fullName') {
+        if (!value.trim()) setEditFullNameError('Full Name is required.');
+        else setEditFullNameError(null);
+    } else if (name === 'dob') {
+        if (!value.trim()) setEditDobError('Date of Birth is required.');
+        else if (!dobRegex.test(value.trim())) setEditDobError('Invalid format (e.g., DD-MM-YYYY).');
+        else setEditDobError(null);
+    } else if (name === 'idNumber') {
+        if (!value.trim()) setEditIdNumberError('ID Number is required.');
+        else if (!idNumberRegex.test(value.trim())) setEditIdNumberError('Must be 8-20 alphanumeric/hyphens.');
+        else setEditIdNumberError(null);
+    }
+  };
+
   const handleEditSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setEditFormError(null);
@@ -355,12 +417,12 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
     setEditCountryError(null); setEditContactNumberError(null); setEditFacialDescriptionError(null); 
     setEditConfidenceScoreError(null); setEditFacialDescriptionConfidenceError(null);
     let hasError = false;
-    const dobRegex = /^\d{2}[-\/.]\d{2}[-\/.]\d{4}$|^\d{4}[-\/.]\d{2}[-\/.]\d{2}$/;
-    const contactRegex = /^\+639\d{9}$/;
+    
     if (!editFullName.trim()) { setEditFullNameError('Full Name is required.'); hasError = true; }
     if (!editDob.trim()) { setEditDobError('Date of Birth is required.'); hasError = true; }
     else if (!dobRegex.test(editDob)) { setEditDobError('Invalid date format.'); hasError = true; }
     if (!editIdNumber.trim()) { setEditIdNumberError('ID Number is required.'); hasError = true; }
+    else if (!idNumberRegex.test(editIdNumber.trim())) { setEditIdNumberError('Must be 8-20 alphanumeric/hyphens.'); hasError = true; }
     if (!editCountry.trim()) { setEditCountryError('Country is required.'); hasError = true; }
     if (!editContactNumber.trim()) {
         setEditContactNumberError('Contact Number is required.');
@@ -411,20 +473,6 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
       editFacialDescriptionConfidence, idCardData, onUpdateIDData, handleCloseEditModal
   ]);
   
-  const handleConfirmVote = async () => {
-    setIsVoting(true);
-    try {
-        await onUpdateEntry({ ...entry, hasVoted: true });
-        // The parent will re-render this with the updated entry.
-    } catch (error) {
-        console.error("Failed to record vote:", error);
-        // We could add an error state to show a message in the modal here
-    } finally {
-        setIsVoting(false);
-        setIsVoteModalOpen(false);
-    }
-  };
-
   const customMainHandlePointerDown = (e: React.PointerEvent<HTMLElement>) => {
     wasDraggingRef.current = false;
     mainViewHandlePointerDown(e);
@@ -437,6 +485,17 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
     if (!wasDraggingRef.current) setIsImageModalOpen(true);
     mainViewHandlePointerUp(e);
   };
+
+  const hasFormErrors = !!(
+    editFullNameError ||
+    editDobError ||
+    editIdNumberError ||
+    editCountryError ||
+    editContactNumberError ||
+    editFacialDescriptionError ||
+    editConfidenceScoreError ||
+    editFacialDescriptionConfidenceError
+  );
 
   return (
     <div className="bg-theme-card p-6 rounded-lg shadow-md border border-theme-border text-theme-text mt-6">
@@ -456,13 +515,14 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
       )}
       {entry.validationStatus === ValidationStatus.APPROVED && !entry.hasVoted && (
           <p className="text-sm text-green-500 mb-4">
-              This voter's identity has been approved. You may now proceed to vote.
+              This voter's identity has been approved. Please follow the instructions to cast your vote.
           </p>
       )}
       {entry.validationStatus === ValidationStatus.APPROVED && entry.hasVoted && (
-          <p className="text-sm text-blue-500 mb-4">
-              Thank you for voting! Your vote has been recorded for this event.
-          </p>
+          <div className="text-sm text-blue-500 mb-4 p-3 bg-blue-100 dark:bg-blue-900/20 rounded-md border border-blue-200 dark:border-blue-800/50">
+            <p className="font-bold">Thank you for voting!</p>
+            <p>Your vote for <span className="font-semibold">{entry.votedForCandidateName}</span> in the <span className="font-semibold">{entry.assignedPosition}</span> race has been recorded.</p>
+          </div>
       )}
 
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 items-start">
@@ -506,6 +566,7 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
                         onPointerMove={customMainHandlePointerMove}
                         onPointerUp={customMainHandlePointerUp}
                         onPointerCancel={mainViewHandlePointerUp}
+                        onDoubleClick={mainViewHandleDoubleClick}
                         className="relative w-full max-w-sm h-auto aspect-[1.586] bg-gray-200 dark:bg-gray-800 flex justify-center items-center overflow-hidden rounded-md border border-theme-border shadow-sm"
                         style={mainViewCursorStyle}
                         aria-label="Scanned ID card image. Scroll to zoom, drag to pan, click to open larger view."
@@ -576,18 +637,11 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
         <Button onClick={onClear} variant="secondary">Clear Entry</Button>
         <Button onClick={handleCopyData} variant="secondary">Copy ID Data</Button>
         <Button onClick={handleOpenEditModal} variant="secondary">Edit Data</Button>
+        {idCardData.voterQRCodeBase64 && (
+          <Button onClick={() => setIsQrModalOpen(true)} variant="secondary">Show Voter QR Code</Button>
+        )}
         <Button onClick={onUndoIDDataEdit} variant="secondary" disabled={!canUndo}>Undo Last Edit</Button>
         {idCardData.base64Image && (<Button onClick={() => { setIsExportModalOpen(true); setExportWithLandmarks(showLandmarks); }} variant="secondary">Export Image</Button>)}
-        {entry.validationStatus === ValidationStatus.APPROVED && entry.assignedPosition && (
-          <Button
-              onClick={() => setIsVoteModalOpen(true)}
-              variant="primary"
-              disabled={entry.hasVoted}
-              className="!bg-green-600 hover:!bg-green-700 focus:ring-green-500 disabled:!bg-green-400 disabled:cursor-not-allowed"
-          >
-              {entry.hasVoted ? 'Vote Cast' : 'Vote Now'}
-          </Button>
-        )}
       </div>
 
       <Modal isOpen={isImageModalOpen} onClose={() => setIsImageModalOpen(false)} title="Scanned ID Card (Zoomed)">
@@ -601,7 +655,7 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
               )}
               <Button onClick={modalViewResetImageAdjustments} variant="secondary" size="sm" className="whitespace-nowrap flex-shrink-0">Reset</Button>
             </div>
-            <div ref={modalViewContainerRef} onWheel={modalViewHandleWheel} onPointerDown={modalViewHandlePointerDown} onPointerMove={modalViewHandlePointerMove} onPointerUp={modalViewHandlePointerUp} onPointerCancel={modalViewHandlePointerCancel} className="relative w-full h-full bg-gray-200 dark:bg-gray-800 flex justify-center items-center overflow-hidden rounded-md" style={modalViewCursorStyle}>
+            <div ref={modalViewContainerRef} onWheel={modalViewHandleWheel} onPointerDown={modalViewHandlePointerDown} onPointerMove={modalViewHandlePointerMove} onPointerUp={modalViewHandlePointerUp} onPointerCancel={modalViewHandlePointerCancel} onDoubleClick={modalViewHandleDoubleClick} className="relative w-full h-full bg-gray-200 dark:bg-gray-800 flex justify-center items-center overflow-hidden rounded-md" style={modalViewCursorStyle}>
               {modalViewImageNaturalSize ? (<canvas ref={modalCanvasRef} style={{ ...modalViewTransformStyle, ...modalViewFilterStyle, display: 'block', position: 'absolute', width: modalViewImageNaturalSize.width, height: modalViewImageNaturalSize.height }}></canvas>) : (<p className="text-center p-4">Loading image for display...</p>)}
               {modalViewImageNaturalSize && (
                   <ZoomControls onZoomIn={modalViewZoomIn} onZoomOut={modalViewZoomOut} onReset={modalViewResetZoomPan} />
@@ -620,17 +674,17 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
           <p className="text-sm text-yellow-600 dark:text-yellow-400 mb-4">Warning: Editing will revert status to 'PENDING' for re-validation.</p>
           {editFormError && <p className="text-red-500 text-sm text-center bg-red-100 dark:bg-red-900/20 p-2 rounded">{editFormError}</p>}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-            <Input label="Full Name" type="text" value={editFullName} onChange={(e) => setEditFullName(e.target.value)} required error={editFullNameError} disabled={isSaving} />
-            <Input label="Date of Birth" type="text" value={editDob} onChange={(e) => setEditDob(e.target.value)} required placeholder="DD-MM-YYYY or YYYY-MM-DD" error={editDobError} disabled={isSaving} />
-            <Input label="ID Number" type="text" value={editIdNumber} onChange={(e) => setEditIdNumber(e.target.value)} required error={editIdNumberError} disabled={isSaving} />
-            <Input label="Country" type="text" value={editCountry} onChange={(e) => setEditCountry(e.target.value)} required error={editCountryError} disabled={isSaving} />
-            <Input label="Contact Number" type="text" value={editContactNumber} onChange={(e) => setEditContactNumber(e.target.value)} required placeholder="+639XXXXXXXXX" error={editContactNumberError} disabled={isSaving || !isContactEditingAllowed} title={!isContactEditingAllowed ? "Editing is disabled by an administrator." : ""} />
-            <Input label="Gender (Optional)" type="text" value={editGender} onChange={(e) => setEditGender(e.target.value)} disabled={isSaving} />
-            <Input label="Issue Date (Optional)" type="text" value={editIssueDate} onChange={(e) => setEditIssueDate(e.target.value)} placeholder="e.g., 01-01-2020" disabled={isSaving} />
-            <Input label="Expiry Date (Optional)" type="text" value={editExpiryDate} onChange={(e) => setEditExpiryDate(e.target.value)} placeholder="e.g., 01-01-2030" disabled={isSaving} />
-            <Input label="Address (Optional)" type="text" value={editAddress} onChange={(e) => setEditAddress(e.target.value)} disabled={isSaving} className="md:col-span-2" />
-            <Input label="Facial Description" type="text" value={editFacialDescription} onChange={(e) => setEditFacialDescription(e.target.value)} required error={editFacialDescriptionError} disabled={isSaving} className="md:col-span-2" />
-            <Input label="Other Text (Optional)" type="text" value={editOtherText} onChange={(e) => setEditOtherText(e.target.value)} disabled={isSaving} className="md:col-span-2" />
+            <Input name="fullName" label="Full Name" type="text" value={editFullName} onChange={handleInputChange} required error={editFullNameError} disabled={isSaving} />
+            <Input name="dob" label="Date of Birth" type="text" value={editDob} onChange={handleInputChange} required placeholder="DD-MM-YYYY or YYYY-MM-DD" error={editDobError} disabled={isSaving} />
+            <Input name="idNumber" label="ID Number" type="text" value={editIdNumber} onChange={handleInputChange} required error={editIdNumberError} disabled={isSaving} />
+            <Input name="country" label="Country" type="text" value={editCountry} onChange={(e) => setEditCountry(e.target.value)} required error={editCountryError} disabled={isSaving} />
+            <Input name="contactNumber" label="Contact Number" type="text" value={editContactNumber} onChange={(e) => setEditContactNumber(e.target.value)} required placeholder="+639XXXXXXXXX" error={editContactNumberError} disabled={isSaving || !isContactEditingAllowed} title={!isContactEditingAllowed ? "Editing is disabled by an administrator." : ""} />
+            <Input name="gender" label="Gender (Optional)" type="text" value={editGender} onChange={(e) => setEditGender(e.target.value)} disabled={isSaving} />
+            <Input name="issueDate" label="Issue Date (Optional)" type="text" value={editIssueDate} onChange={(e) => setEditIssueDate(e.target.value)} placeholder="e.g., 01-01-2020" disabled={isSaving} />
+            <Input name="expiryDate" label="Expiry Date (Optional)" type="text" value={editExpiryDate} onChange={(e) => setEditExpiryDate(e.target.value)} placeholder="e.g., 01-01-2030" disabled={isSaving} />
+            <Input name="address" label="Address (Optional)" type="text" value={editAddress} onChange={(e) => setEditAddress(e.target.value)} disabled={isSaving} className="md:col-span-2" />
+            <Input name="facialDescription" label="Facial Description" type="text" value={editFacialDescription} onChange={(e) => setEditFacialDescription(e.target.value)} required error={editFacialDescriptionError} disabled={isSaving} className="md:col-span-2" />
+            <Input name="otherText" label="Other Text (Optional)" type="text" value={editOtherText} onChange={(e) => setEditOtherText(e.target.value)} disabled={isSaving} className="md:col-span-2" />
             <Input label="Overall Confidence" type="number" min="0.0" max="1.0" step="0.01" value={editConfidenceScore} onChange={(e) => setEditConfidenceScore(parseFloat(e.target.value))} required error={editConfidenceScoreError} disabled={isSaving} />
             <Input label="Facial Desc. Confidence" type="number" min="0.0" max="1.0" step="0.01" value={editFacialDescriptionConfidence} onChange={(e) => setEditFacialDescriptionConfidence(parseFloat(e.target.value))} required error={editFacialDescriptionConfidenceError} disabled={isSaving} />
           </div>
@@ -642,30 +696,28 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
               <p className="text-sm text-gray-500 mt-2">Saving... {savingProgress}%</p>
             </div>
           )}
-          <div className="flex justify-end space-x-2 mt-6"><Button type="button" variant="secondary" onClick={handleCloseEditModal} disabled={isSaving}>Cancel</Button><Button type="submit" variant="primary" disabled={isSaving}>{isSaving ? <LoadingSpinner /> : 'Save Changes'}</Button></div>
+          <div className="flex justify-end space-x-2 mt-6">
+            <Button type="button" variant="secondary" onClick={handleCloseEditModal} disabled={isSaving}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={isSaving || hasFormErrors}>
+                {isSaving ? <LoadingSpinner /> : 'Save Changes'}
+            </Button>
+          </div>
         </form>
       </Modal>
-
-      <Modal isOpen={isVoteModalOpen} onClose={() => !isVoting && setIsVoteModalOpen(false)} title="Confirm Your Vote">
-        <div className="p-4">
-            <p className="mb-6 text-lg">You are about to cast your vote for the <strong>{VOTING_EVENT_NAME}</strong>.</p>
-            <div className="p-4 rounded-md bg-gray-100 dark:bg-slate-700 border border-theme-border mb-6">
-                <p><strong>Voter:</strong> {entry.idCardData.fullName}</p>
-                <p><strong>ID Number:</strong> {entry.idCardData.idNumber}</p>
-            </div>
-            <p className="font-bold text-red-500 mb-6 text-center">This action is final and cannot be undone.</p>
-            <div className="flex justify-end space-x-3">
-                <Button variant="secondary" onClick={() => setIsVoteModalOpen(false)} disabled={isVoting}>Cancel</Button>
-                <Button 
-                    variant="primary" 
-                    className="!bg-green-600 hover:!bg-green-700 focus:ring-green-500" 
-                    onClick={handleConfirmVote} 
-                    disabled={isVoting}
-                >
-                    {isVoting ? <LoadingSpinner /> : 'Confirm and Cast Vote'}
-                </Button>
-            </div>
-        </div>
+      <Modal isOpen={isQrModalOpen} onClose={() => setIsQrModalOpen(false)} title="Voter QR Code">
+        {idCardData.voterQRCodeBase64 && (
+          <div className="text-center p-4">
+              <p className="mb-4">This QR code can be used for quick check-in or verification.</p>
+              <img 
+                  src={`data:image/png;base64,${idCardData.voterQRCodeBase64}`} 
+                  alt="Voter QR Code" 
+                  className="mx-auto w-64 h-64 border-4 border-theme-border rounded-lg" 
+              />
+              <p className="text-xs text-gray-500 mt-4 break-all">
+                  Encoded data: {JSON.stringify({ entryId: entry.id, idNumber: idCardData.idNumber, fullName: idCardData.fullName })}
+              </p>
+          </div>
+        )}
       </Modal>
     </div>
   );

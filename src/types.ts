@@ -42,6 +42,7 @@ export interface IDCardData {
   facialDescriptionConfidence?: number; // Confidence for the facial description
   extractionTimestamp?: string; // Timestamp for when Gemini processing was completed
   profilePictureBase64?: string; // The base64 of the live captured profile picture
+  voterQRCodeBase64?: string; // Base64 of the generated QR code for this voter
 }
 
 export interface DetectedTextBlock {
