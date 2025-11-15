@@ -185,6 +185,8 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,
+    handlePointerCancel,
+    handleDoubleClick,
     zoomIn,
     zoomOut,
     resetZoomPan,
@@ -570,7 +572,8 @@ const IDScanner: React.FC<IDScannerProps> = ({ onIDDataExtracted }) => {
                             onPointerDown={handlePointerDown}
                             onPointerMove={handlePointerMove}
                             onPointerUp={handlePointerUp}
-                            onPointerCancel={handlePointerUp}
+                            onPointerCancel={handlePointerCancel}
+                            onDoubleClick={handleDoubleClick}
                           >
                             {imageNaturalSize ? (
                               <canvas
