@@ -157,8 +157,5 @@ declare global {
       };
     } | null);
     XLSX: any; // Add type declaration for SheetJS library
-    QRCode: {
-      toDataURL: (text: string, options?: any) => Promise<string>;
-    };
   }
 }

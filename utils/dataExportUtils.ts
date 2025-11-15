@@ -1,3 +1,5 @@
+import { toDataURL } from 'qrcode';
+
 export interface FacialSymmetryResult {
   score: number;
   quality: string;
@@ -121,12 +123,9 @@ export function escapeCSV(value: string | number | boolean | null | undefined): 
  * @returns A promise that resolves to the data URL of the generated QR code image.
  */
 export const generateQRCodeDataURL = async (text: string): Promise<string> => {
-  if (!window.QRCode) {
-    throw new Error('QRCode library is not loaded.');
-  }
   try {
     // Returns a full data URL: "data:image/png;base64,..."
-    const dataUrl = await window.QRCode.toDataURL(text, {
+    const dataUrl = await toDataURL(text, {
       errorCorrectionLevel: 'H',
       type: 'image/png',
       quality: 0.9,
