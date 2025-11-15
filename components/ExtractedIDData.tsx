@@ -62,10 +62,6 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
   const [modalContrast, setModalContrast] = useState(100);
   const [modalLandmarkOpacity, setModalLandmarkOpacity] = useState(70);
 
-  // Vote Modal States
-  const [isVoteModalOpen, setIsVoteModalOpen] = useState(false);
-  const [isVoting, setIsVoting] = useState(false);
-
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modalCanvasRef = useRef<HTMLCanvasElement>(null);
   const wasDraggingRef = useRef(false);
@@ -411,20 +407,6 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
       editFacialDescriptionConfidence, idCardData, onUpdateIDData, handleCloseEditModal
   ]);
   
-  const handleConfirmVote = async () => {
-    setIsVoting(true);
-    try {
-        await onUpdateEntry({ ...entry, hasVoted: true });
-        // The parent will re-render this with the updated entry.
-    } catch (error) {
-        console.error("Failed to record vote:", error);
-        // We could add an error state to show a message in the modal here
-    } finally {
-        setIsVoting(false);
-        setIsVoteModalOpen(false);
-    }
-  };
-
   const customMainHandlePointerDown = (e: React.PointerEvent<HTMLElement>) => {
     wasDraggingRef.current = false;
     mainViewHandlePointerDown(e);
@@ -456,13 +438,14 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
       )}
       {entry.validationStatus === ValidationStatus.APPROVED && !entry.hasVoted && (
           <p className="text-sm text-green-500 mb-4">
-              This voter's identity has been approved. You may now proceed to vote.
+              This voter's identity has been approved. Please follow the instructions to cast your vote.
           </p>
       )}
       {entry.validationStatus === ValidationStatus.APPROVED && entry.hasVoted && (
-          <p className="text-sm text-blue-500 mb-4">
-              Thank you for voting! Your vote has been recorded for this event.
-          </p>
+          <div className="text-sm text-blue-500 mb-4 p-3 bg-blue-100 dark:bg-blue-900/20 rounded-md border border-blue-200 dark:border-blue-800/50">
+            <p className="font-bold">Thank you for voting!</p>
+            <p>Your vote for <span className="font-semibold">{entry.votedForCandidateName}</span> in the <span className="font-semibold">{entry.assignedPosition}</span> race has been recorded.</p>
+          </div>
       )}
 
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 items-start">
@@ -578,16 +561,6 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
         <Button onClick={handleOpenEditModal} variant="secondary">Edit Data</Button>
         <Button onClick={onUndoIDDataEdit} variant="secondary" disabled={!canUndo}>Undo Last Edit</Button>
         {idCardData.base64Image && (<Button onClick={() => { setIsExportModalOpen(true); setExportWithLandmarks(showLandmarks); }} variant="secondary">Export Image</Button>)}
-        {entry.validationStatus === ValidationStatus.APPROVED && entry.assignedPosition && (
-          <Button
-              onClick={() => setIsVoteModalOpen(true)}
-              variant="primary"
-              disabled={entry.hasVoted}
-              className="!bg-green-600 hover:!bg-green-700 focus:ring-green-500 disabled:!bg-green-400 disabled:cursor-not-allowed"
-          >
-              {entry.hasVoted ? 'Vote Cast' : 'Vote Now'}
-          </Button>
-        )}
       </div>
 
       <Modal isOpen={isImageModalOpen} onClose={() => setIsImageModalOpen(false)} title="Scanned ID Card (Zoomed)">
@@ -644,28 +617,6 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
           )}
           <div className="flex justify-end space-x-2 mt-6"><Button type="button" variant="secondary" onClick={handleCloseEditModal} disabled={isSaving}>Cancel</Button><Button type="submit" variant="primary" disabled={isSaving}>{isSaving ? <LoadingSpinner /> : 'Save Changes'}</Button></div>
         </form>
-      </Modal>
-
-      <Modal isOpen={isVoteModalOpen} onClose={() => !isVoting && setIsVoteModalOpen(false)} title="Confirm Your Vote">
-        <div className="p-4">
-            <p className="mb-6 text-lg">You are about to cast your vote for the <strong>{VOTING_EVENT_NAME}</strong>.</p>
-            <div className="p-4 rounded-md bg-gray-100 dark:bg-slate-700 border border-theme-border mb-6">
-                <p><strong>Voter:</strong> {entry.idCardData.fullName}</p>
-                <p><strong>ID Number:</strong> {entry.idCardData.idNumber}</p>
-            </div>
-            <p className="font-bold text-red-500 mb-6 text-center">This action is final and cannot be undone.</p>
-            <div className="flex justify-end space-x-3">
-                <Button variant="secondary" onClick={() => setIsVoteModalOpen(false)} disabled={isVoting}>Cancel</Button>
-                <Button 
-                    variant="primary" 
-                    className="!bg-green-600 hover:!bg-green-700 focus:ring-green-500" 
-                    onClick={handleConfirmVote} 
-                    disabled={isVoting}
-                >
-                    {isVoting ? <LoadingSpinner /> : 'Confirm and Cast Vote'}
-                </Button>
-            </div>
-        </div>
       </Modal>
     </div>
   );
