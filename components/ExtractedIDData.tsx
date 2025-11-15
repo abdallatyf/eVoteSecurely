@@ -18,6 +18,10 @@ interface ExtractedIDDataProps {
   onUpdateEntry: (updatedEntry: VotingEntry) => Promise<void>;
 }
 
+const dobRegex = /^\d{2}[-\/.]\d{2}[-\/.]\d{4}$|^\d{4}[-\/.]\d{2}[-\/.]\d{2}$/;
+const idNumberRegex = /^[a-zA-Z0-9-]{8,20}$/;
+const contactRegex = /^\+639\d{9}$/;
+
 const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpdateIDData, onUndoIDDataEdit, canUndo, onUpdateEntry }) => {
   const { idCardData, timestamp, validationStatus } = entry;
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
@@ -314,7 +318,6 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
   }, [idCardData.base64Image, idCardData.imageMimeType, idCardData.facialLandmarks, hasLandmarks, renderImageWithLandmarks]);
 
   const handleOpenEditModal = useCallback(() => {
-    // Read the persisted setting from localStorage
     const allowEditing = localStorage.getItem('settings-allowContactEditing') === 'true';
     setIsContactEditingAllowed(allowEditing);
 
@@ -344,6 +347,41 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
       setSavingProgress(0);
   }, []);
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    
+    const stateSetterMap: { [key: string]: React.Dispatch<React.SetStateAction<string>> } = {
+        fullName: setEditFullName,
+        dob: setEditDob,
+        idNumber: setEditIdNumber,
+        country: setEditCountry,
+        contactNumber: setEditContactNumber,
+        issueDate: setEditIssueDate,
+        expiryDate: setEditExpiryDate,
+        address: setEditAddress,
+        gender: setEditGender,
+        facialDescription: setEditFacialDescription,
+        otherText: setEditOtherText,
+    };
+
+    if (stateSetterMap[name]) {
+        stateSetterMap[name](value);
+    }
+
+    if (name === 'fullName') {
+        if (!value.trim()) setEditFullNameError('Full Name is required.');
+        else setEditFullNameError(null);
+    } else if (name === 'dob') {
+        if (!value.trim()) setEditDobError('Date of Birth is required.');
+        else if (!dobRegex.test(value.trim())) setEditDobError('Invalid format (e.g., DD-MM-YYYY).');
+        else setEditDobError(null);
+    } else if (name === 'idNumber') {
+        if (!value.trim()) setEditIdNumberError('ID Number is required.');
+        else if (!idNumberRegex.test(value.trim())) setEditIdNumberError('Must be 8-20 alphanumeric/hyphens.');
+        else setEditIdNumberError(null);
+    }
+  };
+
   const handleEditSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setEditFormError(null);
@@ -351,12 +389,12 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
     setEditCountryError(null); setEditContactNumberError(null); setEditFacialDescriptionError(null); 
     setEditConfidenceScoreError(null); setEditFacialDescriptionConfidenceError(null);
     let hasError = false;
-    const dobRegex = /^\d{2}[-\/.]\d{2}[-\/.]\d{4}$|^\d{4}[-\/.]\d{2}[-\/.]\d{2}$/;
-    const contactRegex = /^\+639\d{9}$/;
+    
     if (!editFullName.trim()) { setEditFullNameError('Full Name is required.'); hasError = true; }
     if (!editDob.trim()) { setEditDobError('Date of Birth is required.'); hasError = true; }
     else if (!dobRegex.test(editDob)) { setEditDobError('Invalid date format.'); hasError = true; }
     if (!editIdNumber.trim()) { setEditIdNumberError('ID Number is required.'); hasError = true; }
+    else if (!idNumberRegex.test(editIdNumber.trim())) { setEditIdNumberError('Must be 8-20 alphanumeric/hyphens.'); hasError = true; }
     if (!editCountry.trim()) { setEditCountryError('Country is required.'); hasError = true; }
     if (!editContactNumber.trim()) {
         setEditContactNumberError('Contact Number is required.');
@@ -419,6 +457,17 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
     if (!wasDraggingRef.current) setIsImageModalOpen(true);
     mainViewHandlePointerUp(e);
   };
+
+  const hasFormErrors = !!(
+    editFullNameError ||
+    editDobError ||
+    editIdNumberError ||
+    editCountryError ||
+    editContactNumberError ||
+    editFacialDescriptionError ||
+    editConfidenceScoreError ||
+    editFacialDescriptionConfidenceError
+  );
 
   return (
     <div className="bg-theme-card p-6 rounded-lg shadow-md border border-theme-border text-theme-text mt-6">
@@ -593,17 +642,17 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
           <p className="text-sm text-yellow-600 dark:text-yellow-400 mb-4">Warning: Editing will revert status to 'PENDING' for re-validation.</p>
           {editFormError && <p className="text-red-500 text-sm text-center bg-red-100 dark:bg-red-900/20 p-2 rounded">{editFormError}</p>}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-            <Input label="Full Name" type="text" value={editFullName} onChange={(e) => setEditFullName(e.target.value)} required error={editFullNameError} disabled={isSaving} />
-            <Input label="Date of Birth" type="text" value={editDob} onChange={(e) => setEditDob(e.target.value)} required placeholder="DD-MM-YYYY or YYYY-MM-DD" error={editDobError} disabled={isSaving} />
-            <Input label="ID Number" type="text" value={editIdNumber} onChange={(e) => setEditIdNumber(e.target.value)} required error={editIdNumberError} disabled={isSaving} />
-            <Input label="Country" type="text" value={editCountry} onChange={(e) => setEditCountry(e.target.value)} required error={editCountryError} disabled={isSaving} />
-            <Input label="Contact Number" type="text" value={editContactNumber} onChange={(e) => setEditContactNumber(e.target.value)} required placeholder="+639XXXXXXXXX" error={editContactNumberError} disabled={isSaving || !isContactEditingAllowed} title={!isContactEditingAllowed ? "Editing is disabled by an administrator." : ""} />
-            <Input label="Gender (Optional)" type="text" value={editGender} onChange={(e) => setEditGender(e.target.value)} disabled={isSaving} />
-            <Input label="Issue Date (Optional)" type="text" value={editIssueDate} onChange={(e) => setEditIssueDate(e.target.value)} placeholder="e.g., 01-01-2020" disabled={isSaving} />
-            <Input label="Expiry Date (Optional)" type="text" value={editExpiryDate} onChange={(e) => setEditExpiryDate(e.target.value)} placeholder="e.g., 01-01-2030" disabled={isSaving} />
-            <Input label="Address (Optional)" type="text" value={editAddress} onChange={(e) => setEditAddress(e.target.value)} disabled={isSaving} className="md:col-span-2" />
-            <Input label="Facial Description" type="text" value={editFacialDescription} onChange={(e) => setEditFacialDescription(e.target.value)} required error={editFacialDescriptionError} disabled={isSaving} className="md:col-span-2" />
-            <Input label="Other Text (Optional)" type="text" value={editOtherText} onChange={(e) => setEditOtherText(e.target.value)} disabled={isSaving} className="md:col-span-2" />
+            <Input name="fullName" label="Full Name" type="text" value={editFullName} onChange={handleInputChange} required error={editFullNameError} disabled={isSaving} />
+            <Input name="dob" label="Date of Birth" type="text" value={editDob} onChange={handleInputChange} required placeholder="DD-MM-YYYY or YYYY-MM-DD" error={editDobError} disabled={isSaving} />
+            <Input name="idNumber" label="ID Number" type="text" value={editIdNumber} onChange={handleInputChange} required error={editIdNumberError} disabled={isSaving} />
+            <Input name="country" label="Country" type="text" value={editCountry} onChange={(e) => setEditCountry(e.target.value)} required error={editCountryError} disabled={isSaving} />
+            <Input name="contactNumber" label="Contact Number" type="text" value={editContactNumber} onChange={(e) => setEditContactNumber(e.target.value)} required placeholder="+639XXXXXXXXX" error={editContactNumberError} disabled={isSaving || !isContactEditingAllowed} title={!isContactEditingAllowed ? "Editing is disabled by an administrator." : ""} />
+            <Input name="gender" label="Gender (Optional)" type="text" value={editGender} onChange={(e) => setEditGender(e.target.value)} disabled={isSaving} />
+            <Input name="issueDate" label="Issue Date (Optional)" type="text" value={editIssueDate} onChange={(e) => setEditIssueDate(e.target.value)} placeholder="e.g., 01-01-2020" disabled={isSaving} />
+            <Input name="expiryDate" label="Expiry Date (Optional)" type="text" value={editExpiryDate} onChange={(e) => setEditExpiryDate(e.target.value)} placeholder="e.g., 01-01-2030" disabled={isSaving} />
+            <Input name="address" label="Address (Optional)" type="text" value={editAddress} onChange={(e) => setEditAddress(e.target.value)} disabled={isSaving} className="md:col-span-2" />
+            <Input name="facialDescription" label="Facial Description" type="text" value={editFacialDescription} onChange={(e) => setEditFacialDescription(e.target.value)} required error={editFacialDescriptionError} disabled={isSaving} className="md:col-span-2" />
+            <Input name="otherText" label="Other Text (Optional)" type="text" value={editOtherText} onChange={(e) => setEditOtherText(e.target.value)} disabled={isSaving} className="md:col-span-2" />
             <Input label="Overall Confidence" type="number" min="0.0" max="1.0" step="0.01" value={editConfidenceScore} onChange={(e) => setEditConfidenceScore(parseFloat(e.target.value))} required error={editConfidenceScoreError} disabled={isSaving} />
             <Input label="Facial Desc. Confidence" type="number" min="0.0" max="1.0" step="0.01" value={editFacialDescriptionConfidence} onChange={(e) => setEditFacialDescriptionConfidence(parseFloat(e.target.value))} required error={editFacialDescriptionConfidenceError} disabled={isSaving} />
           </div>
@@ -615,7 +664,12 @@ const ExtractedIDData: React.FC<ExtractedIDDataProps> = ({ entry, onClear, onUpd
               <p className="text-sm text-gray-500 mt-2">Saving... {savingProgress}%</p>
             </div>
           )}
-          <div className="flex justify-end space-x-2 mt-6"><Button type="button" variant="secondary" onClick={handleCloseEditModal} disabled={isSaving}>Cancel</Button><Button type="submit" variant="primary" disabled={isSaving}>{isSaving ? <LoadingSpinner /> : 'Save Changes'}</Button></div>
+          <div className="flex justify-end space-x-2 mt-6">
+            <Button type="button" variant="secondary" onClick={handleCloseEditModal} disabled={isSaving}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={isSaving || hasFormErrors}>
+                {isSaving ? <LoadingSpinner /> : 'Save Changes'}
+            </Button>
+          </div>
         </form>
       </Modal>
     </div>
